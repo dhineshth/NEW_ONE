@@ -8,6 +8,23 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+
+    <!-- jQuery + DataTables + Export Plugins -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.36/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.36/vfs_fonts.js"></script>
+
     <style>
         :root {
             --primary-color: #28a745;
@@ -105,23 +122,49 @@
             z-index: 100;
         }
         
-        .user-info {
-            display: flex;
-            align-items: center;
-        }
-        
-        .user-info .avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: var(--primary-color);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 10px;
-            font-weight: bold;
-        }
+        /* User dropdown styles */
+.user-info.dropdown-toggle::after {
+    display: none;
+}
+
+.dropdown-menu {
+    border: none;
+    border-radius: 10px;
+    min-width: 200px;
+}
+
+.dropdown-item-text {
+    padding: 0.5rem 1rem;
+}
+
+.dropdown-item {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    margin: 0 4px;
+    width: calc(100% - 8px);
+}
+
+.dropdown-item:hover {
+    background-color: #f8f9fa;
+}
+
+.avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    font-weight: bold;
+    transition: transform 0.3s;
+}
+
+.user-info:hover .avatar {
+    transform: scale(1.05);
+}
         
         /* Dashboard Cards */
         .dashboard-card {
@@ -238,8 +281,9 @@
         }
         
         .drag-drop {
-            font-weight: 600;
-            margin-bottom: 8px;
+            font-weight: 500;
+            margin-bottom: 4px;
+            text-align: center;
         }
         
         .job-title {
@@ -249,7 +293,7 @@
         
         .row {
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             margin: 12px 0;
         }
         
@@ -257,6 +301,7 @@
             font-weight: 600;
             margin-bottom: 6px;
         }
+        
         .jd-controls {
             display: flex;
             gap: 8px;
@@ -273,7 +318,7 @@
             width: 100%;
         }
         
-        input[type=text], input[type=file], textarea, select {
+        input[type=number], input[type=text], input[type=file], textarea, select {
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 8px;
@@ -291,8 +336,9 @@
         }
         
         .hint {
-            font-size: 12px;
+            font-size: 8px;
             color: #6b7280;
+            margin-top: 10px;
         }
         
         .center {
@@ -354,174 +400,326 @@
             text-align: left;
             white-space: nowrap;
         }
-        
-        .search-row {
-            max-width: 420px;
-        }
+.search-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 15px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.search-container {
+    position: relative;
+    width: 30%; /* Set container width to 30% */
+    flex: 0 1 auto;
+}
+
+.filter-container {
+    flex: 0 1 auto;
+    min-width: 150px;
+}
+
+
+
+.clear-icon {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    font-size: 18px;
+    display: none;
+    color: #ff0000;
+}
+
+#user_filter {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 992px) {
+    .search-container {
+        width: 40%; /* Slightly larger on medium screens */
+    }
+}
+
+@media (max-width: 768px) {
+    .search-row {
+        flex-direction: row; /* Keep row layout */
+        align-items: center;
+    }
+    
+    .search-container {
+        width: 50%; /* Half width on tablets */
+        min-width: 150px;
+    }
+    
+    .filter-container {
+        min-width: 150px;
+        margin-top: 0;
+    }
+}
+
+@media (max-width: 576px) {
+    .search-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .search-container {
+        width: 100%; /* Full width on mobile */
+    }
+    
+    .filter-container {
+        width: 100%;
+        margin-top: 10px;
+    }
+}
+
+#history_table {
+    width: 100%;
+    border: 1px solid #ccc;
+    min-height: 200px;
+}
+/* Wrap long text inside table cells */
+#historyTable td, #historyTable th {
+    white-space: normal !important;
+    word-wrap: break-word;
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* Fix column width */
+#historyTable th, #historyTable td {
+    max-width: 150px;
+}
+/* Top bar alignment */
+.dt-top {
+    margin-bottom: 10px;
+}
+
+/* Space between buttons and search */
+.dt-top .dt-buttons {
+    margin-left: 15px;
+}
+
+
         
         /* Analysis Results Styling */
         .analysis-card {
-            padding: 20px;
-            border-radius: 10px;
-            background: white;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        }
-        
-        .report-header {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .candidate-name {
-            font-size: 1.2rem;
-            margin-bottom: 20px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        
-        .match-score-box {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        
-        .progress-circle {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .progress-circle-inner {
-            width: 70px;
-            height: 70px;
-            border-radius: 50%;
-            background: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .progress-score {
-            font-size: 1.2rem;
-            font-weight: bold;
-        }
-        
-        .profile-feedback {
-            margin-bottom: 20px;
-        }
-        
-        .panel {
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-        
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .metric-card {
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            text-align: center;
-        }
-        
-        .metric-title {
-            font-size: 0.9rem;
-            color: #6c757d;
-            margin-bottom: 5px;
-        }
-        
-        .metric-value {
-            font-size: 1.2rem;
-            font-weight: bold;
-        }
-        
-        .success {
-            color: #28a745;
-        }
-        
-        .error {
-            color: #dc3545;
-        }
-        
-        .no-match {
-            background: #fff5f5;
-        }
-        
-        .skill-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-        
-        .skill-box {
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        
-        .skill-box h5 {
-            margin-bottom: 15px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #dee2e6;
-        }
-        
-        .skill-item {
-            padding: 8px;
-            margin-bottom: 8px;
-            border-radius: 5px;
-        }
-        
-        .skill-matched {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .skill-missing-primary {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .skill-missing-secondary {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .spinner {
-            text-align: center;
-            padding: 30px;
-            font-size: 1.2rem;
-        }
+    padding: 20px;
+    border-radius: 10px;
+    background: white;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    margin-bottom: 20px;
+}
+
+.candidate-name {
+    margin: 10px 0;
+    font-size: 1.1rem;
+}
+
+.match-score {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.progress-circle {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress-circle-inner {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.profile-feedback {
+    margin-bottom: 20px;
+}
+
+.panel {
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+.metrics {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.metric-card {
+    flex: 1;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.metric-title {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.metric-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+.match { background: #d4edda; color: #155724; }
+.no-match { background: #f8d7da; color: #721c24; }
+
+.table table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+.table th, .table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: center;
+}
+
+.skill-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.skill-box {
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.skill-item {
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border-radius: 5px;
+}
+
+.skill-matched { background: #d4edda; color: #155724; }
+.skill-missing-primary { background: #f8d7da; color: #721c24; }
+.skill-missing-secondary { background: #fff3cd; color: #856404; }
+
+/* Increase the height and padding of the length menu and buttons */
+.dataTables_length select {
+    height: 40px;
+    width: 50px;
+    padding: 0 5px;
+    font-size: 14px;
+    margin-right: 10px;
+}
+
+.dt-buttons .btn {
+    height: 40px;
+    padding: 0 5px;
+    font-size: 14px;
+}
+
+/* Optional: Add spacing between buttons */
+.dt-buttons .btn {
+    margin-left: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
         
         /* Upload Area Styling */
-        .upload-area {
-            border: 2px dashed #ddd;
-            border-radius: 10px;
-            padding: 30px;
-            text-align: center;
-            margin-bottom: 20px;
-            background: #f9fafb;
-            transition: all 0.3s;
-            position: relative;
-        }
+        /* Flex container */
+.upload-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 20px; /* spacing between upload and file info */
+}
+
+/* Shrink upload area */
+.upload-area {
+    width: 150px;
+    height: 100px;
+    border: 2px dashed #6c63ff;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: 0.3s ease;
+    background: #f9f9f9;
+}
+
+.upload-area:hover {
+    background: #f1f0ff;
+}
+
+.file-name {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    /* border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #fafafa; */
+    margin-top: 8px;
+    min-height: 40px;
+    gap: 10px; /* Adds spacing between filename and icon */
+}
+
+.file-label {
+    font-weight: 600;
+    color: #333;
+    flex-grow: 1; /* filename takes available space */
+    word-break: break-word; /* handles long names */
+}
+
+.remove-file {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: #f8d7da;
+    color: #d9534f;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.remove-file:hover {
+    background: #d9534f;
+    color: #fff;
+}
+
+#dashboardStats {
+    display: none; /* Hidden by default */
+}
+
+
         
         .upload-area.drag-over {
             border-color: #3b82f6;
@@ -529,9 +727,10 @@
         }
         
         .upload-icon {
-            font-size: 3rem;
+            font-size: 2rem;
             color: #6b7280;
-            margin-bottom: 15px;
+            margin-bottom: 0px;
+            margin-top: 10px;
         }
         
         /* Form Layout Improvements */
@@ -645,6 +844,7 @@
             padding: 20px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
             text-align: center;
+            border: 1px solid #111827;
         }
         
         .stats-number {
@@ -655,8 +855,38 @@
         
         .stats-label {
             color: #6c757d;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
+            font-weight: bold;
         }
+        .stats-card:hover {
+            background-color: #ecf3f4;
+            cursor: pointer;
+        }
+        .status-dropdown {
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-align: center;
+    padding: 0.25rem 1.5rem 0.25rem 0.2rem; /* extra right padding */
+    width: 110px;
+    margin: 0 auto;
+    display: block;
+    font-size: 0.85rem;
+    cursor: pointer;
+    appearance: none;              /* hide default arrow */
+    background-position: right 0.5rem center; /* move arrow right */
+    background-repeat: no-repeat;
+    background-size: 1rem;
+}
+
+/* Add custom arrow */
+.status-dropdown option {
+    text-align: center;
+}
+
+
+
+
         
         /* File Validation Error */
         .file-error {
@@ -693,7 +923,8 @@
     <!-- Sidebar -->
     <div id="sidebar">
         <div class="sidebar-header">
-            <img src="logo3.png" alt="Logo" style="width: 70px; height: 70px;">
+            <img id="sidebarCompanyLogo" src="" alt="Company Logo" class="rounded-circle shadow-sm" 
+                                    style="width:100px; height:100px; object-fit:cover;">
             <h3>Company Admin</h3>
         </div>
         <div class="sidebar-menu">
@@ -702,6 +933,24 @@
                     <a class="nav-link active" href="#" data-link="dashboard" onclick="showDashboard()">
                         <i class="fas fa-tachometer-alt"></i>
                         <span class="link-text">Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="info" onclick="showCompanyInfo()">
+                        <i class="fas fa-info-circle"></i>
+                        <span class="link-text">Company Info</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="clients" onclick="showClientsMenu()">
+                        <i class="fas fa-building"></i>
+                        <span class="link-text">My Clients</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="users" onclick="loadCompanyUsers()">
+                        <i class="fas fa-users"></i>
+                        <span class="link-text">My Users</span>
                     </a>
                 </li>
                 <li class="nav-item">
@@ -717,23 +966,13 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="#" data-link="users" onclick="loadCompanyUsers()">
-                        <i class="fas fa-users"></i>
-                        <span class="link-text">Company Users</span>
+                    <a class="nav-link" href="#" data-link="report" onclick="report()">
+                        <i class="fas fa-file"></i>
+                        <span class="link-text">Reports</span>
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#" data-link="info" onclick="showCompanyInfo()">
-                        <i class="fas fa-info-circle"></i>
-                        <span class="link-text">Company Info</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#" onclick="logout()">
-                        <i class="fas fa-sign-out-alt"></i>
-                        <span class="link-text">Logout</span>
-                    </a>
-                </li>
+                
+                
             </ul>
         </div>
     </div>
@@ -748,12 +987,20 @@
                 </button>
                 
                 <div class="ms-auto d-flex align-items-center">
-                    <div class="user-info">
-                        <div class="avatar" id="userInitial">A</div>
-                        <div>
-                            <div class="fw-bold" id="userName">Admin</div>
-                            <small class="text-muted">Company Admin</small>
+                    <div class="dropdown">
+                        <div class="user-info dropdown-toggle" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="cursor: pointer;">
+                            <div class="avatar" id="userInitial">A</div>
                         </div>
+                        <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="userDropdown">
+                            <li class="dropdown-item-text">
+                                <div class="fw-bold" id="userName">Admin</div>
+                                <small class="text-muted">Company Admin</small>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="logout()">
+                                <i class="fas fa-sign-out-alt me-2"></i>Logout
+                            </a></li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -774,29 +1021,30 @@
             </div> -->
 
             <!-- Stats Cards -->
-            <div class="row mb-4 animate-fade">
+            <!-- Stats Cards -->
+            <div id="dashboardStats" class="row mb-4 animate-fade">
                 <div class="col-12">
                     <div class="stats-grid">
-                        <div class="stats-card">
-                            <div class="stats-number text-primary" id="usersCount">0</div>
-                            <div class="stats-label">Company Users</div>
+                        <div class="stats-card" style="cursor: pointer;" onclick="loadCompanyUsers()">
+                            <div class="stats-number text-primary" id="activeUsersCount">0</div>
+                            <div class="stats-label">Active Users</div>
                         </div>
-                        <div class="stats-card">
-                            <div class="stats-number text-info" id="adminsCount">0</div>
-                            <div class="stats-label">Company Admins</div>
+                       <div class="stats-card" style="cursor: pointer;" onclick="showResumeAnalyzer()">
+                            <div class="stats-number text-success" id="monthlyAnalysesCount">0</div>
+                            <div class="stats-label" id="analysesLabel">Analyzed Resumes - </div>
                         </div>
-                        <div class="stats-card">
-                            <div class="stats-number text-success" id="analysesCount">0</div>
-                            <div class="stats-label">Resume Analyses</div>
+                        <div class="stats-card" style="cursor: pointer;" onclick="showAnalysisHistory()">
+                            <div class="stats-number text-info" id="monthlyPagesCount">0</div>
+                            <div class="stats-label" id="pagesLabel">Parsed Pages - </div>
                         </div>
-                        <div class="stats-card">
+                        <div class="stats-card" style="cursor: pointer;" onclick="showClientsMenu()">
                             <div class="stats-number text-warning" id="clientsCount">0</div>
-                            <div class="stats-label">Clients</div>
+                            <div class="stats-label">Active Clients</div>
                         </div>
                     </div>
                 </div>
             </div>
-            
+                        
             <!-- Data Section -->
             <div class="row animate-fade">
                 <div class="col-12">
@@ -805,7 +1053,7 @@
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h5 class="card-title mb-0" id="dataSectionTitle">Company Data</h5>
                                 <div class="dropdown" id="dataFilterDropdownContainer">
-                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="dataFilterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <!-- <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="dataFilterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                                         <i class="fas fa-filter"></i> Options
                                     </button>
                                     <ul class="dropdown-menu" aria-labelledby="dataFilterDropdown">
@@ -813,7 +1061,7 @@
                                         <li><a class="dropdown-item" href="#" onclick="showCompanyInfo()">Company Info</a></li>
                                         <li><a class="dropdown-item" href="#" onclick="showResumeAnalyzer()">Resume Analyzer</a></li>
                                         <li><a class="dropdown-item" href="#" onclick="showAnalysisHistory()">Analysis History</a></li>
-                                    </ul>
+                                    </ul> -->
                                 </div>
                             </div>
                             <div id="dataContent">
@@ -828,19 +1076,36 @@
 
     <!-- Bootstrap JS Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    
+    <!-- Add this to your head section -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const API_BASE_URL = 'http://localhost:8000';
-        const MAX_FILE_SIZE = 3 * 1024 * 1024; // 3MB in bytes
+        const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB in bytes
         const ALLOWED_FILE_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
         
         let userData = null;
         let companyData = null;
         let analysisHistory = [];
-
+        function updateSidebarLogo() {
+            const sidebarLogo = document.getElementById('sidebarCompanyLogo');
+            
+            if (companyData && companyData.logo_url) {
+                // Use the company logo from the API
+                sidebarLogo.src = `${API_BASE_URL}${companyData.logo_url}`;
+            } else {
+                // Fallback to the default logo if no company logo exists
+                sidebarLogo.src = "logo3.png";
+            }
+            
+            // Add error handling in case the logo fails to load
+            sidebarLogo.onerror = function() {
+                this.src = "logo3.png";
+            };
+        }
         // Check authentication on page load
         window.onload = function() {
             const storedUserData = localStorage.getItem("userData");
+            
             if (!storedUserData) {
                 window.location.href = "index.html";
                 return;
@@ -856,10 +1121,28 @@
             document.getElementById("userInitial").textContent = userData.name.charAt(0).toUpperCase();
             
             loadCompanyData();
-            loadCompanyUsers();
+            
             loadAnalysisHistory();
             setActiveLink('dashboard');
+            updateDashboardStats();
+            showDashboard();
         };
+        function updateStatsLabels() {
+            const now = new Date();
+            const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", 
+                                "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+            const month = monthNames[now.getMonth()]; // Get short month name
+            const year = now.getFullYear();
+
+            const formattedMonthYear = `${month} ${year}`;
+
+            document.getElementById('analysesLabel').innerText = `Analyzed Resumes - ${formattedMonthYear}`;
+            document.getElementById('pagesLabel').innerText = `Parsed Pages - ${formattedMonthYear}`;
+        }
+
+        // Call this function when the page loads or when data is refreshed
+        updateStatsLabels();
 
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -892,48 +1175,361 @@
             localStorage.setItem('activeLink', linkId || 'dashboard');
         }
 
-        function showDashboard() {
-            setActiveLink('dashboard');
-            document.getElementById('dataSectionTitle').textContent = 'Company Data';
-            document.getElementById('dataFilterDropdownContainer').style.display = 'block';
-            document.getElementById('dataContent').innerHTML = `
-                <div class="text-center py-4">
-                    <i class="fas fa-tachometer-alt fa-3x text-muted mb-3"></i>
-                    <h5>Dashboard Overview</h5>
-                    <p class="text-muted">Select an option from the sidebar to view company data</p>
-                </div>
-            `;
+        // Function to update dashboard stats
+async function updateDashboardStats() {
+    try {
+        // Ensure analysisHistory is loaded
+        if (!analysisHistory || analysisHistory.length === 0) {
+            await loadAnalysisHistory();
         }
 
+        // Active users
+        const usersResponse = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
+        if (usersResponse.ok) {
+            const users = await usersResponse.json();
+            const activeUsers = users.filter(user => user.status === "active" && user.role === "user");
+
+            const usersEl = document.getElementById("activeUsersCount");
+            if (usersEl) usersEl.textContent = activeUsers.length;
+        }
+
+        // Monthly pages and analyses
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const monthlyPages = analysisHistory
+            .filter(a => a.timestamp && new Date(a.timestamp).getMonth() === currentMonth && new Date(a.timestamp).getFullYear() === currentYear)
+            .reduce((sum, a) => sum + (a.page_count || 0), 0);
+
+        const monthlyPagesEl = document.getElementById("monthlyPagesCount");
+        if (monthlyPagesEl) monthlyPagesEl.textContent = monthlyPages;
+
+        const monthlyAnalyses = analysisHistory
+            .filter(a => a.timestamp && new Date(a.timestamp).getMonth() === currentMonth && new Date(a.timestamp).getFullYear() === currentYear);
+
+        const monthlyAnalysesEl = document.getElementById("monthlyAnalysesCount");
+        if (monthlyAnalysesEl) monthlyAnalysesEl.textContent = monthlyAnalyses.length;
+
+    } catch (error) {
+        console.error("Error updating dashboard stats:", error);
+    }
+}
+
+        function showDashboard() {
+    setActiveLink('dashboard');
+    document.getElementById('dataSectionTitle').textContent = 'Company Data';
+    document.getElementById('dataFilterDropdownContainer').style.display = 'block';
+    
+    // Show the stats cards
+    document.getElementById('dashboardStats').style.display = 'flex';
+    
+    // Get current date for default values
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    
+    document.getElementById('dataContent').innerHTML = `
+        <div class="form-section">
+            <div class="form-section-title d-flex justify-content-between align-items-center">
+                <div>
+                    
+                </div>
+                <div class="d-flex align-items-center gap-2" style="font-size: 0.9rem;">
+                    <div>
+                        <label class="mb-0 me-1">View:</label>
+                        <select id="chartFilter" class="form-control form-control-sm d-inline-block" style="width: 120px;" onchange="updateDashboardChart()">
+                            <option value="all">All</option>
+                            <option value="admin">Admin</option>
+                            <option value="user">Users</option>
+                            <option value="individual">Admin and Users</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-0 me-1">Year:</label>
+                        <select id="chartYear" class="form-control form-control-sm d-inline-block" style="width: 80px;" onchange="updateDashboardChart()">
+                            ${generateYearOptions(currentYear)}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chart-container mt-3" style="position: relative; height:400px; width:100%">
+                <canvas id="pagesChart"></canvas>
+            </div>
+        </div>
+    `;
+    
+    // Initialize the chart
+    setTimeout(() => {
+        updateDashboardChart();
+    }, 100);
+}
+
+function generateYearOptions(currentYear) {
+    let options = '';
+    for (let year = currentYear - 2; year <= currentYear; year++) {
+        options += `<option value="${year}" ${year === currentYear ? 'selected' : ''}>${year}</option>`;
+    }
+    return options;
+}
+
+let pagesChart = null;
+
+async function updateDashboardChart() {
+    const filterType = document.getElementById('chartFilter').value;
+    const selectedYear = parseInt(document.getElementById('chartYear').value);
+    
+    try {
+        // Get active users
+        const usersResponse = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}&status=active`);
+        if (!usersResponse.ok) return;
+        
+        const users = await usersResponse.json();
+        const currentDate = new Date();
+        const currentMonth = currentDate.getMonth();
+        const currentYearNow = currentDate.getFullYear();
+        
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const labels = [];
+        const monthCount = selectedYear === currentYearNow ? currentMonth + 1 : 12;
+        
+        for (let i = 0; i < monthCount; i++) {
+            labels.push(`${monthNames[i]} ${selectedYear}`);
+        }
+        
+        const datasets = [];
+        
+        // Common color palette
+        const colorPalette = [
+            'rgba(54, 162, 235, 0.7)',  // Blue
+            'rgba(255, 99, 132, 0.7)',  // Red
+            'rgba(75, 192, 192, 0.7)',  // Teal
+            'rgba(255, 159, 64, 0.7)',  // Orange
+            'rgba(153, 102, 255, 0.7)', // Purple
+            'rgba(255, 205, 86, 0.7)',  // Yellow
+            'rgba(201, 203, 207, 0.7)', // Gray
+            'rgba(0, 128, 128, 0.7)',   // Teal
+            'rgba(128, 0, 128, 0.7)',   // Purple
+            'rgba(128, 128, 0, 0.7)'    // Olive
+        ];
+
+        if (filterType === 'individual') {
+            // Admin + Users shown separately
+            const activeUsers = users.filter(user => user.status === "active");
+            
+            activeUsers.forEach((user, index) => {
+                const userData = [];
+                
+                for (let month = 0; month < monthCount; month++) {
+                    const userPages = analysisHistory
+                        .filter(analysis => {
+                            if (!analysis.timestamp) return false;
+                            const analysisDate = new Date(analysis.timestamp);
+                            return analysisDate.getMonth() === month && 
+                                   analysisDate.getFullYear() === selectedYear;
+                        })
+                        .filter(analysis => analysis.created_by === user.id)
+                        .reduce((sum, analysis) => sum + (analysis.page_count || 0), 0);
+                    
+                    userData.push(userPages);
+                }
+                
+                const colorIndex = index % colorPalette.length;
+                datasets.push({
+                    label: `${user.name} (${user.role === 'company_admin' ? 'Admin' : 'User'})`,
+                    data: userData,
+                    backgroundColor: colorPalette[colorIndex],
+                    borderColor: colorPalette[colorIndex].replace('0.7', '1'),
+                    borderWidth: 1,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9
+                });
+            });
+        } 
+        else if (filterType === 'user') {
+            // Each user separately (exclude admins)
+            const activeUsers = users.filter(user => user.role === "user" && user.status === "active");
+            
+            activeUsers.forEach((user, index) => {
+                const userDataPoints = [];
+                
+                for (let month = 0; month < monthCount; month++) {
+                    const userPages = analysisHistory
+                        .filter(analysis => {
+                            if (!analysis.timestamp) return false;
+                            const analysisDate = new Date(analysis.timestamp);
+                            return analysisDate.getMonth() === month && 
+                                   analysisDate.getFullYear() === selectedYear;
+                        })
+                        .filter(analysis => analysis.created_by === user.id)
+                        .reduce((sum, analysis) => sum + (analysis.page_count || 0), 0);
+                    
+                    userDataPoints.push(userPages);
+                }
+                
+                const colorIndex = index % colorPalette.length;
+                datasets.push({
+                    label: `${user.name} (User)`,
+                    data: userDataPoints,
+                    backgroundColor: colorPalette[colorIndex],
+                    borderColor: colorPalette[colorIndex].replace('0.7', '1'),
+                    borderWidth: 1,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9
+                });
+            });
+        } 
+        else {
+            // Admin total
+            if (filterType === 'all' || filterType === 'admin') {
+                const adminData = [];
+                
+                for (let month = 0; month < monthCount; month++) {
+                    const adminPages = users
+                        .filter(user => user.role === "company_admin" && user.status === "active")
+                        .reduce((total, user) => {
+                            return total + analysisHistory
+                                .filter(analysis => {
+                                    if (!analysis.timestamp) return false;
+                                    const analysisDate = new Date(analysis.timestamp);
+                                    return analysisDate.getMonth() === month && 
+                                           analysisDate.getFullYear() === selectedYear;
+                                })
+                                .filter(analysis => analysis.created_by === user.id)
+                                .reduce((sum, analysis) => sum + (analysis.page_count || 0), 0);
+                        }, 0);
+                    
+                    adminData.push(adminPages);
+                }
+                
+                datasets.push({
+                    label: 'Admin (Total)',
+                    data: adminData,
+                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    barPercentage: 0.6,
+                    categoryPercentage: 0.8
+                });
+            }
+            
+            // Users total (only for "all")
+            if (filterType === 'all') {
+                const userData = [];
+                
+                for (let month = 0; month < monthCount; month++) {
+                    const userPages = users
+                        .filter(user => user.role === "user" && user.status === "active")
+                        .reduce((total, user) => {
+                            return total + analysisHistory
+                                .filter(analysis => {
+                                    if (!analysis.timestamp) return false;
+                                    const analysisDate = new Date(analysis.timestamp);
+                                    return analysisDate.getMonth() === month && 
+                                           analysisDate.getFullYear() === selectedYear;
+                                })
+                                .filter(analysis => analysis.created_by === user.id)
+                                .reduce((sum, analysis) => sum + (analysis.page_count || 0), 0);
+                        }, 0);
+                    
+                    userData.push(userPages);
+                }
+                
+                datasets.push({
+                    label: 'Users (Total)',
+                    data: userData,
+                    backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    barPercentage: 0.6,
+                    categoryPercentage: 0.8
+                });
+            }
+        }
+        
+        // Render chart
+        const ctx = document.getElementById('pagesChart').getContext('2d');
+        
+        if (pagesChart) {
+            pagesChart.destroy();
+        }
+        
+        pagesChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Pages'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Months'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `Pages Parsed in ${selectedYear}`
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    }
+                }
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error updating chart:', error);
+    }
+}
+
+
         function showResumeAnalyzer() {
+            document.getElementById('dashboardStats').style.display = 'none';
             setActiveLink('resume-analyzer');
             document.getElementById('dataSectionTitle').textContent = 'Resume Analyzer';
             document.getElementById('dataFilterDropdownContainer').style.display = 'none';
             
             document.getElementById('dataContent').innerHTML = `
-                <div class="form-section">
-                    <div class="form-section-title">
-                        <i class="fas fa-file-upload me-2"></i>Upload Resume
-                    </div>
-                    <div class="upload-area" id="uploadArea">
-                        <div class="upload-icon">
-                            <i class="fas fa-cloud-upload-alt"></i>
-                        </div>
-                        <div class="drag-drop">Drag & drop your file here or click to browse</div>
-                        <div class="hint">Supported formats: PDF, DOC, DOCX (Max: 3MB)</div>
-                        <input type="file" id="resume" accept=".pdf,.doc,.docx" style="display: none;" />
-                    </div>
-                    <div id="file-name" class="text-center mb-3"></div>
-                    <div id="file-error" class="file-error"></div>
+    <div class="form-section upload-section">
+        <div class="upload-container">
+            <!-- Left: Upload Box -->
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">
+                    <i class="fas fa-cloud-upload-alt"></i>
                 </div>
+                <div class="drag-drop">Drag & drop or click</div>
+                <div class="hint">PDF, DOC, DOCX (Max: 1MB)</div>
+                <input type="file" id="resume" accept=".pdf,.doc,.docx" style="display: none;" />
+            </div>
 
+            <!-- Right: File Info -->
+            <div class="file-info">
+                <div id="file-name" class="file-name"></div>
+                <div id="file-error" class="file-error"></div>
+            </div>
+        </div>
+    </div>
                 <div class="form-section">
                     <div class="form-section-title">
                         <i class="fas fa-briefcase me-2"></i>Job Description Details
                     </div>
                     
                     <div class="row">
-                        <label>Client Source</label>
+                        <label>Client</label>
                         <div class="radio-group">
                             <label><input type="radio" name="client_mode" value="new" checked onchange="toggleClientMode()" /> New Client</label>
                             <label><input type="radio" name="client_mode" value="existing" onchange="toggleClientMode()" /> Existing Client</label>
@@ -960,11 +1556,11 @@
                                 <input id="jd_req_exp" type="text" disabled />
                             </div>
                             <div class="row required">
-                                <label>Primary Skills</label>
+                                <label>Primary Skills (Must Have)</label>
                                 <textarea id="jd_primary" disabled></textarea>
                             </div>
                             <div class="row">
-                                <label>Secondary Skills</label>
+                                <label>Secondary Skills (Nice to Have)</label>
                                 <textarea id="jd_secondary" disabled></textarea>
                             </div>
                             <div class="jd-controls">
@@ -976,12 +1572,26 @@
                     </div>
 
                     <div id="new-client" class="section">
-                        <div class="row required"><label>Client Name</label><input type="text" id="client_name" placeholder="Zoho" /></div>
-                        <div class="row required"><label>Job Description Name</label><input type="text" id="jd_title" placeholder="Senior Python Developer" /></div>
-                        <div class="row required"><label>Required Experience</label><input type="text" id="required_experience" placeholder="e.g., 3-5, 4+, 5 +" /></div>
-                        <div class="row required"><label>Primary Skills (Must Have)</label><textarea id="primary_skills" placeholder="Python, Java, SQL"></textarea></div>
-                        <div class="row"><label>Secondary Skills (Nice to Have)</label><textarea id="secondary_skills" placeholder="Docker, AWS, CI/CD"></textarea></div>
-                    </div>
+                <div class="row required"><label>Client Name</label><input type="text" id="client_name" placeholder="Zoho" /></div>
+                <div class="row required"><label>Job Description Name</label><input type="text" id="jd_title" placeholder="Senior Python Developer" /></div>
+                <div class="row required"><label>Required Experience</label><input type="text" id="required_experience" placeholder="e.g., 3-5, 4+, 5 +" /></div>
+                <div class="row required"><label>Primary Skills (Must Have)</label><textarea id="primary_skills" placeholder="Python, Java, SQL"></textarea></div>
+                <div class="row"><label>Secondary Skills (Nice to Have)</label><textarea id="secondary_skills" placeholder="Docker, AWS, CI/CD"></textarea></div>
+                
+                <!-- NEW FIELDS -->
+                <div class="row required"><label>Location</label><input type="text" id="location" placeholder="e.g., Chennai, Trichy" /></div>
+                <div class="row required"><label>Budget</label><input type="text" id="budget" placeholder="e.g., 3 LPA" /></div>
+                <div class="row"><label>Number of Positions</label><input type="number" id="number_of_positions" placeholder="e.g., 2" min="1" /></div>
+                <div class="row">
+                    <label>Work Mode</label>
+                    <select id="work_mode">
+                        <option value="">Select Work Mode</option>
+                        <option value="in-office">In-Office</option>
+                        <option value="remote">Remote</option>
+                        <option value="hybrid">Hybrid</option>
+                    </select>
+                </div>
+            </div>
                 </div>
 
                 <div class="center">
@@ -1003,6 +1613,10 @@
                 initDragAndDrop();
                 initFileUpload();
                 loadClients();
+                initClientNameValidation();
+                initJDTitleValidation();
+                initRequiredExpValidation();
+                initPrimarySkillsValidation();
             }, 100);
         }
        
@@ -1099,7 +1713,7 @@
             };
             
             try {
-                const res = await authFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds/${encodeURIComponent(jdName)}`, {
+                const res = await apiFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds/${encodeURIComponent(jdName)}`, {
                     method: 'PUT', 
                     headers: { 'Content-Type': 'application/json' }, 
                     body: JSON.stringify(body)
@@ -1131,33 +1745,490 @@
         }
 
         function showAnalysisHistory() {
+            document.getElementById('dashboardStats').style.display = 'none';
             setActiveLink('analysis-history');
             document.getElementById('dataSectionTitle').textContent = 'Analysis History';
             document.getElementById('dataFilterDropdownContainer').style.display = 'none';
-            
+
             document.getElementById('dataContent').innerHTML = `
                 <div class="form-section">
-                    <div class="form-section-title">
-                        <i class="fas fa-history me-2"></i>Analysis History
+                    <div class="search-row">
+                        
+                        
+                        <div class="filter-container">
+                            <select id="user_filter" onchange="filterHistory()">
+                                <option value="all">All </option>
+                            </select>
+                        </div>
                     </div>
-                    
-                    <div class="row search-row">
-                        <label>Search</label>
-                        <input type="text" id="history_search" placeholder="Type name, email, client or JD..." oninput="filterHistory()" />
-                    </div>
-                    
                     <div id="history_table" class="table"></div>
                 </div>
             `;
-            
-            // Load history data
+
+            // Load history data and populate user filter
             loadHistory();
+            populateUserFilter();
         }
+        async function populateUserFilter() {
+            try {
+                const response = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
+                
+                if (response.ok) {
+                    const users = await response.json();
+                    const userFilter = document.getElementById('user_filter');
+                    userFilter.innerHTML = ""; // Clear old options
+
+                    // 🔹 Add "All" option
+                    const allOption = document.createElement('option');
+                    allOption.value = 'all';
+                    allOption.textContent = 'All';
+                    userFilter.appendChild(allOption);
+
+                    // 🔹 Add company admins
+                    users.forEach(adminUser => {
+                        if (adminUser.role === "company_admin") {
+                            const adminOption = document.createElement('option');
+                            adminOption.value = adminUser.id;   // ✅ use actual admin ID
+                            adminOption.textContent = adminUser.name + " (Admin)";
+                            userFilter.appendChild(adminOption);
+                        }
+                    });
+
+                    // 🔹 Add regular users
+                    users.forEach(user => {
+                        if (user.role === "user") {
+                            const option = document.createElement('option');
+                            option.value = user.id;
+                            option.textContent = user.name + " (User)";
+                            userFilter.appendChild(option);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading users for filter:', error);
+            }
+        }
+        function report() {
+         document.getElementById('dashboardStats').style.display = 'none';
+    setActiveLink('report');
+    document.getElementById('dataSectionTitle').textContent = 'Analysis Report';
+    document.getElementById('dataFilterDropdownContainer').style.display = 'none';
+
+    document.getElementById('dataContent').innerHTML = `
+        <div class="form-section">
+            <div class="filter-toolbar d-flex flex-wrap gap-2 mb-3" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+
+                <!-- Multi User Filter -->
+                <div style="min-width: 200px;">
+                    <label class="small mb-1">Users</label>
+                    <select id="user_filter" class="form-control form-control-sm" multiple></select>
+                    </select>
+                </div>
+
+                <!-- Client Filter -->
+                <div style="min-width: 150px;">
+                    <label class="small mb-1">Client</label>
+                    <select id="client_filter" class="form-control form-control-sm" onchange="filterHistory_report()">
+                        <option value="all">All Clients</option>
+                    </select>
+                </div>
+
+                <!-- JD Filter -->
+                <div style="min-width: 150px;">
+                    <label class="small mb-1">Job Description</label>
+                    <select id="jd_filter" class="form-control form-control-sm" onchange="filterHistory_report()">
+                        <option value="all">All Job Descriptions</option>
+                    </select>
+                </div>
+
+                <!-- Experience Match -->
+                <div style="min-width: 150px;">
+                    <label class="small mb-1">Experience Match</label>
+                    <select id="exp_match_filter" class="form-control form-control-sm" onchange="filterHistory_report()">
+                        <option value="all">All</option>
+                        <option value="true">Matched</option>
+                        <option value="false">Unmatched</option>
+                    </select>
+                </div>
+
+                <!-- Score Range -->
+                <div style="min-width: 150px;">
+                    <label class="small mb-1">Score Range</label>
+                    <select id="score_filter" class="form-control form-control-sm" onchange="filterHistory_report()">
+                        <option value="all">All Scores</option>
+                        <option value="0-50">0 - 50</option>
+                        <option value="51-70">51 - 70</option>
+                        <option value="71-100">71 - 100</option>
+                    </select>
+                </div>
+
+                <!-- Date Range -->
+                <div style="min-width: 150px;">
+                    <label class="small mb-1">From Date</label>
+                    <input type="date" id="from_date" class="form-control form-control-sm" onchange="filterHistory_report()">
+                </div>
+                
+                <div style="min-width: 150px;">
+                    <label class="small mb-1">To Date</label>
+                    <input type="date" id="to_date" class="form-control form-control-sm" onchange="filterHistory_report()">
+                </div>
+            </div>
+
+            <div id="history_table" class="table"></div>
+        </div>
+    `;
+
+    // Load data
+    loadHistory_report();
+    populateUserFilter_report();
+    populateClientAndJDFilters();
+}
+
+async function loadHistory_report() {
+    const historyTable = document.getElementById('history_table');
+    if (!historyTable) return;
+
+    historyTable.innerHTML = '<div class="text-center p-4">Loading history...</div>';
+
+    try {
+        let items = [...analysisHistory]; // clone
+
+        // 🔹 Get filters
+        const selectedUserIds = Array.from(document.getElementById('user_filter')?.selectedOptions || []).map(opt => opt.value);
+        const clientFilter = document.getElementById('client_filter')?.value || 'all';
+        const jdFilter = document.getElementById('jd_filter')?.value || 'all';
+        const expMatchFilter = document.getElementById('exp_match_filter')?.value || 'all';
+        const scoreFilter = document.getElementById('score_filter')?.value || 'all';
+        const fromDate = document.getElementById('from_date')?.value;
+        const toDate = document.getElementById('to_date')?.value;
+
+        // 🔹 Apply filters
+        if (selectedUserIds.length > 0 && !selectedUserIds.includes('all')) {
+            items = items.filter(x => selectedUserIds.includes(x.created_by));
+        }
+        if (clientFilter !== 'all') {
+            items = items.filter(x => x.client_name === clientFilter);
+        }
+        if (jdFilter !== 'all') {
+            items = items.filter(x => x.jd_title === jdFilter);
+        }
+        if (expMatchFilter !== 'all') {
+            const isMatch = expMatchFilter === 'true';
+            items = items.filter(x => !!x.experience_match === isMatch);
+        }
+        if (scoreFilter !== 'all') {
+            const [min, max] = scoreFilter.split('-').map(Number);
+            items = items.filter(x => {
+                const score = Number(x.match_score || 0);
+                return score >= min && score <= max;
+            });
+        }
+        if (fromDate) {
+            const from = new Date(fromDate);
+            items = items.filter(x => new Date(x.timestamp) >= from);
+        }
+        if (toDate) {
+            const to = new Date(toDate);
+            items = items.filter(x => new Date(x.timestamp) <= to);
+        }
+
+        // 🔹 Sort newest first
+        items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        if (items.length === 0) {
+            historyTable.innerHTML = '<div class="text-center p-4">No analysis history found</div>';
+            return;
+        }
+
+        // Check if multi-user selected → add User Name column
+        const showUserName = selectedUserIds.length > 1 || selectedUserIds.includes('all');
+
+        // 🔹 Build table rows
+        const rows = items.map((h, idx) => {
+            // Find user name from user data
+            let userName = 'N/A';
+            if (h.created_by) {
+                const userSelect = document.getElementById('user_filter');
+                if (userSelect) {
+                    const userOption = Array.from(userSelect.options).find(opt => opt.value === h.created_by);
+                    if (userOption) {
+                        // Remove the role indicator from the name
+                        userName = userOption.textContent.replace(/\s*\(Admin\)|\s*\(User\)/, '');
+                    }
+                }
+            }
+            
+            return `
+                <tr>
+                    <td>${idx + 1}</td>
+                    <td>${h.candidate_name || 'N/A'}</td>
+                    <td>${h.candidate_email || 'N/A'}</td>
+                    <td>${h.client_name || 'N/A'}</td>
+                    <td>${h.jd_title || 'N/A'}</td>
+                    <td>${h.required_experience || 'N/A'} Years</td>
+                    <td>${h.total_experience || 'N/A'}</td>
+                    <td style="text-align: center;">${h.experience_match ? '✅' : '❌'}</td>
+                    <td>${h.match_score ?? 'N/A'}</td>
+                    ${showUserName ? `<td>${userName}</td>` : ""}
+                    <td>${h.filename || 'N/A'}</td>
+                    <td>${h.page_count || 'N/A'}</td>
+                    <td>${formatDate(h.timestamp)}</td>
+                    
+                </tr>
+            `;
+        }).join('');
+
+        // 🔹 Render table
+        historyTable.innerHTML = `
+            <div class="table-responsive">
+                <table id="historyTable" class="table table-striped table-bordered">
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Candidate Name</th>
+                            <th>Email</th>
+                            <th>Client</th>
+                            <th>Job Description</th>
+                            <th>Required <br> Experience</th>
+                            <th>Candidate <br> Experience</th>
+                            <th>Experience <br> Match</th>
+                            <th>Score</th>
+                            ${showUserName ? `<th>User Name</th>` : ""}
+                            <th>File Name</th>
+                            <th>Parsed <br> Pages</th>
+                            <th>Parsed Date</th>
+                         
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+
+        // 🔹 Initialize DataTable
+        const exportFileName = `Analysis_Report_${formatDate(new Date(), 'dd-mm-yyyy')}`;
+
+        $('#historyTable').DataTable({
+            pageLength: 10,
+            lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+            language: { lengthMenu: "_MENU_" },
+            order: [],
+            columnDefs: [
+                { orderable: true, targets: [0, 1, 8, 10, 11] },
+                { orderable: false, targets: '_all' },
+                { width: "120px", targets: "_all" }
+            ],
+            dom: `
+                <"d-flex justify-content-between align-items-center mb-3"
+                    <"d-flex" lB>
+                    f
+                >
+                rt
+                <"d-flex justify-content-between align-items-center mt-3"
+                    i
+                    p
+                >
+            `,
+            buttons: [
+                {
+                    extend: 'excelHtml5',
+                    text: '<i class="fa fa-file-excel text-success"></i>',
+                    filename: exportFileName,
+                    title: 'Analysis_Report_' + (() => {
+                                const today = new Date();
+                                const day = String(today.getDate()).padStart(2, '0');
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const year = today.getFullYear();
+                                return `${day}-${month}-${year}`;
+                            })(),
+                    sheetName: 'Analysis Report',
+                    exportOptions: {
+                        //columns: ':not(:last-child)', // Exclude action column
+                        format: {
+                            body: function (data, row, column, node) {
+                                return data === '✅' ? 'Yes' : (data === '❌' ? 'No' : data);
+                            }
+                        }
+                    }
+                },
+                {
+                            extend: 'pdfHtml5',
+                            text: '<i class="fa fa-file-pdf text-danger"></i>',
+                            title: 'Analysis_Report_' + (() => {
+                                const today = new Date();
+                                const day = String(today.getDate()).padStart(2, '0');
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const year = today.getFullYear();
+                                return `${day}-${month}-${year}`;
+                            })(),
+                            orientation: 'landscape',
+                            pageSize: 'A3',
+                            exportOptions: { columns: [0,1,2,3,4,5,6,7,8,9,10,11] },
+                            customize: function (doc) {
+                                doc.styles.tableHeader = {
+                                    fillColor: '#f2f2f2',
+                                    color: 'black',
+                                    alignment: 'left',
+                                    bold: true
+                                };
+                                doc.defaultStyle.fontSize = 8;
+                                doc.content[1].table.widths = [
+                                    '3%', '12%', '12%', '10%', '12%', '6%', '6%', '5%', '4%', '10%', '12%', '7%'
+                                ];
+
+                                // Add custom layout
+                                doc.content[1].layout = {
+                                    hLineWidth: function (i, node) {
+                                        if (i === 1) return 2;  // Thick bottom border for header row
+                                        return 0.5;            // Thin horizontal borders elsewhere
+                                    },
+                                    vLineWidth: function (i, node) {
+                                        return 0.5;           // Thin vertical borders
+                                    },
+                                    hLineColor: function (i, node) {
+                                        return 'black';       // Dark black border color
+                                    },
+                                    vLineColor: function (i, node) {
+                                        return 'black';       // Dark black border color
+                                    },
+                                    paddingLeft: function(i, node) { return 4; },
+                                    paddingRight: function(i, node) { return 4; },
+                                    paddingTop: function(i, node) { return 2; },
+                                    paddingBottom: function(i, node) { return 2; }
+                                };
+
+                                var rowCount = doc.content[1].table.body.length;
+                                for (var i = 1; i < rowCount; i++) {
+                                    let expMatch = doc.content[1].table.body[i][7].text;
+                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][7].text = "Yes";
+                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][7].text = "No";
+
+                                    doc.content[1].table.body[i][6].alignment = 'center';
+                                    doc.content[1].table.body[i][7].alignment = 'center';
+                                    doc.content[1].table.body[i][8].alignment = 'center';
+                                    doc.content[1].table.body[i][10].alignment = 'center';
+                                    doc.content[1].table.body[i][11].alignment = 'center';
+                                }
+
+                                doc.pageMargins = [20, 20, 20, 30];
+
+                                doc['footer'] = function(currentPage, pageCount) {
+                                    return { text: currentPage.toString() + ' / ' + pageCount, alignment: 'right', margin: [0, 0, 20, 0] };
+                                };
+                            }
+                        },
+                {
+                    extend: 'print',
+                    text: '<i class="fa fa-print text-primary"></i>',
+                    title: 'Analysis_Report_' + (() => {
+                                const today = new Date();
+                                const day = String(today.getDate()).padStart(2, '0');
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const year = today.getFullYear();
+                                return `${day}-${month}-${year}`;
+                            })(),
+                    exportOptions: {
+                        // columns: ':not(:last-child)',
+                        format: {
+                            body: function (data, row, column, node) {
+                                return data === '✅' ? 'Yes' : (data === '❌' ? 'No' : data);
+                            }
+                        }
+                    }
+                }
+            ]
+        });
+    } catch (e) {
+        console.error('Error loading history:', e);
+        historyTable.innerHTML = '<div class="alert alert-danger">Failed to load history</div>';
+    }
+}
+function formatDate(date, format = 'dd-mm-yyyy') {
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+}
+
+async function populateUserFilter_report() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
+        if (response.ok) {
+            const users = await response.json();
+            const userFilter = document.getElementById('user_filter');
+            userFilter.innerHTML = "";
+
+            // Add All Users option
+            const allOption = document.createElement('option');
+            allOption.value = 'all';
+            allOption.textContent = 'All Users';
+            userFilter.appendChild(allOption);
+
+            users.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u.id;
+                opt.textContent = u.name + (u.role === "company_admin" ? " (Admin)" : " (User)");
+                userFilter.appendChild(opt);
+            });
+
+            // Initialize Choices
+            if (window.userChoices) {
+                window.userChoices.destroy();
+            }
+            window.userChoices = new Choices('#user_filter', {
+                removeItemButton: true,
+                searchEnabled: true,
+                placeholderValue: 'Select users...',
+                noResultsText: 'No users found',
+                itemSelectText: '',
+                shouldSort: false
+            });
+
+            // Enforce mutually exclusive logic
+            userFilter.addEventListener('change', () => {
+                const selected = Array.from(userFilter.selectedOptions).map(opt => opt.value);
+                if (selected.includes('all') && selected.length > 1) {
+                    // If 'all' is selected, unselect other options
+                    window.userChoices.removeActiveItems();
+                    window.userChoices.setChoiceByValue('all');
+                }
+                filterHistory_report();
+            });
+        }
+    } catch (err) {
+        console.error("Error loading users:", err);
+    }
+}
+
+
+
+function populateClientAndJDFilters() {
+    const clientFilter = document.getElementById('client_filter');
+    const jdFilter = document.getElementById('jd_filter');
+
+    const clients = [...new Set(analysisHistory.map(x => x.client_name).filter(Boolean))];
+    const jds = [...new Set(analysisHistory.map(x => x.jd_title).filter(Boolean))];
+
+    clients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        clientFilter.appendChild(opt);
+    });
+
+    jds.forEach(j => {
+        const opt = document.createElement('option');
+        opt.value = j;
+        opt.textContent = j;
+        jdFilter.appendChild(opt);
+    });
+}
+
 
         function initDragAndDrop() {
             const uploadArea = document.getElementById('uploadArea');
             const fileInput = document.getElementById('resume');
-            const fileError = document.getElementById('file-error');
             
             if (!uploadArea || !fileInput) return;
             
@@ -1205,79 +2276,56 @@
                     handleFiles(files);
                 }
             }
-            
-            function handleFiles(files) {
-                const file = files[0];
-                
-                // Validate file
-                const validationResult = validateFile(file);
-                if (!validationResult.isValid) {
-                    fileError.textContent = validationResult.message;
-                    fileError.style.display = 'block';
-                    return;
-                }
-                
-                // Hide any previous error
-                fileError.style.display = 'none';
-                
-                // Update file input and display file name
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                
-                document.getElementById('file-name').textContent = `Selected file: ${file.name}`;
-            }
-            
-            function validateFile(file) {
-                // Check if file is provided
-                if (!file) {
-                    return { isValid: false, message: 'Please select a file.' };
-                }
-                
-                // Check file type
-                if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-                    return { isValid: false, message: 'Invalid file type. Please upload a PDF, DOC, or DOCX file.' };
-                }
-                
-                // Check file size
-                if (file.size > MAX_FILE_SIZE) {
-                    return { isValid: false, message: 'File size exceeds the 3MB limit.' };
-                }
-                
-                return { isValid: true, message: '' };
-            }
         }
 
         function initFileUpload() {
             const fileInput = document.getElementById('resume');
-            const fileName = document.getElementById('file-name');
-            const fileError = document.getElementById('file-error');
             
             if (!fileInput) return;
             
             fileInput.addEventListener('change', function() {
-                // Hide any previous error
-                fileError.style.display = 'none';
-                
                 if (this.files.length > 0) {
-                    const file = this.files[0];
-                    
-                    // Validate file
-                    const validationResult = validateFile(file);
-                    if (!validationResult.isValid) {
-                        fileError.textContent = validationResult.message;
-                        fileError.style.display = 'block';
-                        fileName.textContent = '';
-                        return;
-                    }
-                    
-                    fileName.textContent = `Selected file: ${file.name}`;
-                } else {
-                    fileName.textContent = '';
+                    handleFiles(this.files);
                 }
             });
         }
-        
+
+        function handleFiles(files) {
+            const file = files[0];
+            const fileError = document.getElementById('file-error');
+            const fileNameBox = document.getElementById('file-name');
+            
+            // Validate file
+            const validationResult = validateFile(file);
+            if (!validationResult.isValid) {
+                fileError.textContent = validationResult.message;
+                fileError.style.display = 'block';
+                fileNameBox.innerHTML = '';
+                return;
+            }
+            
+            // Hide any previous error
+            fileError.style.display = 'none';
+            
+            // Update file input
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            document.getElementById('resume').files = dataTransfer.files;
+            
+            // Show file name + remove icon
+            fileNameBox.innerHTML = `
+                <span class="file-label">📄 ${file.name}</span>
+                <span class="remove-file" onclick="removeSelectedFile()">✖</span>
+            `;
+        }
+
+        function removeSelectedFile() {
+            const fileInput = document.getElementById('resume');
+            fileInput.value = "";
+            document.getElementById('file-name').innerHTML = "";
+            document.getElementById('file-error').style.display = "none";
+        }
+
         function validateFile(file) {
             // Check if file is provided
             if (!file) {
@@ -1291,7 +2339,7 @@
             
             // Check file size
             if (file.size > MAX_FILE_SIZE) {
-                return { isValid: false, message: 'File size exceeds the 3MB limit.' };
+                return { isValid: false, message: 'File size exceeds the 1MB limit.' };
             }
             
             return { isValid: true, message: '' };
@@ -1310,12 +2358,15 @@
             if (!clientSelect) return;
             
             try {
-                const res = await authFetch(`${API_BASE_URL}/clients`);
+                const res = await apiFetch(`${API_BASE_URL}/clients/table-data`);
                 const clients = await res.json();
                 
                 clientSelect.innerHTML = '<option value="">Choose a Client</option>';
                 clients.forEach(client => {
-                    clientSelect.innerHTML += `<option value="${client}">${client}</option>`;
+                    // Only show active clients
+                    if (client.status === 'active') {
+                        clientSelect.innerHTML += `<option value="${client.name}">${client.name}</option>`;
+                    }
                 });
                 
             } catch (error) {
@@ -1345,7 +2396,7 @@
             jdSelect.disabled = true;
             
             try {
-                const res = await authFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds`);
+                const res = await apiFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds`);
                 const jds = await res.json();
                 
                 jdSelect.innerHTML = '<option value="">Choose a Job Description</option>';
@@ -1384,7 +2435,7 @@
             }
             
             try {
-                const res = await authFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds/${encodeURIComponent(jdName)}`);
+                const res = await apiFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds/${encodeURIComponent(jdName)}`);
                 
                 if (!res.ok) {
                     jdDetails.classList.add('hidden');
@@ -1421,11 +2472,12 @@
         async function loadCompanyData() {
             try {
                 // Get company information
-                const response = await authFetch(`${API_BASE_URL}/companies`);
+                const response = await apiFetch(`${API_BASE_URL}/companies`);
                 
                 if (response.ok) {
                     const companies = await response.json();
                     companyData = companies.find(c => c.id === userData.company_id);
+                    updateSidebarLogo();
                 }
             } catch (error) {
                 console.error("Error loading company data:", error);
@@ -1433,15 +2485,19 @@
         }
 
         async function loadCompanyUsers() {
+            document.getElementById('dashboardStats').style.display = 'none';
             setActiveLink('users');
-            document.getElementById('dataSectionTitle').textContent = 'Company Users';
+            document.getElementById('dataSectionTitle').textContent = 'My Users';
             document.getElementById('dataFilterDropdownContainer').style.display = 'block';
             
             try {
-                const response = await authFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
+                const response = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
                 
                 if (response.ok) {
                     const users = await response.json();
+                    if (analysisHistory.length === 0) {
+                        await loadAnalysisHistory();
+                    }
                     displayCompanyUsers(users);
                     updateUserStats(users);
                 }
@@ -1451,232 +2507,1678 @@
         }
 
         function updateUserStats(users) {
-            const company_users = users.filter(user => user.role === "user").length;
-            const admins = users.filter(user => user.role === "company_admin").length;
-            
-            document.getElementById("usersCount").textContent = company_users;
-            document.getElementById("adminsCount").textContent = admins;
-        }
+    const activeUsers = users.filter(user => user.status === "active" && user.role === "user").length;
+    const admins = users.filter(user => user.status === "active" && user.role === "company_admin").length;
+    
+    // These are just for internal tracking, not displayed on the dashboard
+    // console.log("Active Users:", activeUsers);
+    // console.log("Active Admins:", admins);
+}
 
         function displayCompanyUsers(users) {
-            const content = document.getElementById("dataContent");
-            if (users.length === 0) {
-                content.innerHTML = `
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle me-2"></i> No users found in your company
-                    </div>
-                `;
+    const content = document.getElementById("dataContent");
+
+    const regularUsers = users.filter(user => user.role === "user");
+
+    if (regularUsers.length === 0) {
+        content.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i> No regular users found in your company
+            </div>
+        `;
+        return;
+    }
+
+    let html = `
+        <div class="table-responsive">
+            <table class="table data-table">
+                <thead>
+                    <tr>
+                        <th>S.No</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Total Parsed Pages</th>
+                        <th>User Created On</th>
+                        <th style="width: 180px; text-align:center;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    regularUsers.forEach((user, index) => {
+        const userPages = analysisHistory
+            .filter(analysis => analysis.created_by === user.id)
+            .reduce((total, analysis) => total + (analysis.page_count || 0), 0);
+
+        const statusDropdown = `
+            <select class="form-select form-select-sm status-dropdown ${user.status === "active" ? "bg-success-subtle text-dark" : "bg-danger-subtle text-dark"}"
+                    onchange="handleStatusChange('${user.id}', this)">
+                <option value="active" ${user.status === "active" ? "selected" : ""}>Active</option>
+                <option value="inactive" ${user.status === "inactive" ? "selected" : ""}>Inactive</option>
+            </select>
+        `;
+
+        html += `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${user.name}</td>
+                <td>${user.email}</td>
+                <td>${userPages}</td>
+                <td>${formatDate(user.created_at)}</td>
+                <td class="text-center">${statusDropdown}</td>
+            </tr>
+        `;
+    });
+
+    html += "</tbody></table></div>";
+    content.innerHTML = html;
+}
+
+function handleStatusChange(userId, selectEl) {
+    const newStatus = selectEl.value;
+
+    if (newStatus === "inactive") {
+        updateUserStatus(userId, "inactive");
+        selectEl.className = "form-select form-select-sm status-dropdown bg-danger-subtle text-dark";
+    } else if (newStatus === "active") {
+        alert("Contact admin to activate this user");
+        // reset back to inactive
+        selectEl.value = "inactive";
+        selectEl.className = "form-select form-select-sm status-dropdown bg-danger-subtle text-dark";
+    }
+}
+
+        // Function to handle user status updates
+        async function updateUserStatus(userId, status) {
+            if (!confirm(`Do you want to ${status === 'active' ? 'activate' : 'deactivate'} this user?`)) {
                 return;
             }
 
-            let html = `
-                <div class="table-responsive">
-                    <table class="table data-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Role</th>
-                                <th>Created</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
+            // Ask for reason only when deactivating
+            let reason = "";
+            if (status === "inactive") {
+                reason = prompt("Please enter a reason:");
+                if (!reason || reason.trim() === "") {
+                    alert("Reason is required.");
+                    return;
+                }
+            }
 
-            users.forEach(user => {
-                const roleBadge = user.role === "company_admin" ? 
-                    '<span class="badge bg-primary">company_admin</span>' : 
-                    '<span class="badge bg-secondary">user</span>';
-                
-                html += `
+            try {
+                const response = await apiFetch(`${API_BASE_URL}/users/${userId}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        status: status,
+                        reason: reason
+                    })
+                });
+
+                if (response.ok) {
+                    showMessage(`User ${status === 'active' ? 'activated' : 'deactivated'} successfully!`, 'success');
+                    loadCompanyUsers(); // reload list
+                } else {
+                    const error = await response.json();
+                    showMessage(`Failed to update user status: ${error.detail || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error updating user status:', error);
+                showMessage('Error updating user status. Please try again.', 'error');
+            }
+        }
+// Show clients table
+function showClientsMenu() {
+    document.getElementById('dashboardStats').style.display = 'none';
+    setActiveLink('clients');
+    document.getElementById('dataSectionTitle').textContent = 'My Clients';
+    document.getElementById('dataFilterDropdownContainer').style.display = 'none';
+    
+    document.getElementById('dataContent').innerHTML = `
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    
+                </div>
+                <div>
+                    <select id="statusFilter" class="form-select form-select-sm" style="width: 120px;" onchange="loadClientsTable()">
+                        <option value="">All </option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="clientsTableContainer">
+                    <div class="text-center p-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading clients data...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    loadClientsTable();
+}
+
+// Load clients table data
+async function loadClientsTable() {
+    try {
+        const statusFilter = document.getElementById('statusFilter')?.value || '';
+        let url = `${API_BASE_URL}/clients/table-data`;
+        
+        if (statusFilter) {
+            url += `?status=${statusFilter}`;
+        }
+        
+        const response = await apiFetch(url);
+        if (response.ok) {
+            const clients = await response.json();
+            renderClientsTable(clients);
+        } else {
+            throw new Error('Failed to load clients data');
+        }
+    } catch (error) {
+        console.error('Error loading clients:', error);
+        document.getElementById('clientsTableContainer').innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i> Failed to load clients data: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Render clients table with proper Bootstrap styling
+function renderClientsTable(clients) {
+    const container = document.getElementById('clientsTableContainer');
+    
+    if (clients.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i> No clients found
+            </div>
+        `;
+        return;
+    }
+    
+    let html = `
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover">
+                <thead class="table-light">
                     <tr>
-                        <td>${user.name}</td>
-                        <td>${user.email}</td>
-                        <td>${roleBadge}</td>
-                        <td>${new Date(user.created_at).toLocaleDateString()}</td>
+                        <th>S.No</th>
+                        <th>Client Name</th>
+                        <th>Job Descriptions</th>
+                        <th>Client Created Date</th>
+                        <th>Edit</th>
+                        <th>Status</th>
                     </tr>
-                `;
+                </thead>
+                <tbody>
+    `;
+    
+    clients.forEach((client, index) => {
+        html += `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${client.name}</td>
+                <td>
+                    ${client.status === 'active' ? 
+                        `<button class="btn btn-sm btn-info" onclick="viewJobDescriptions('${client.id}', '${client.name}')">
+                            <i class="fas fa-list me-1"></i> View JDs (${client.jd_count})
+                        </button>` : 
+                        '<span class="text-muted">N/A</span>'
+                    }
+                </td>
+                <td>${formatDate(client.created_at)}</td>
+                <td>
+                    <button class="btn btn-outline-primary btn-sm" onclick="editClient('${client.id}', '${client.name}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </td>
+                <td>
+                    <select class="form-select form-select-sm status-dropdown ${client.status === 'active' ? 'bg-success-subtle text-dark' : 'bg-danger-subtle text-dark'}"
+                            onchange="toggleClientStatus('${client.id}', '${client.name}', this.value)">
+                        <option value="active" ${client.status === 'active' ? 'selected' : ''}>Active</option>
+                        <option value="inactive" ${client.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                    </select>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += "</tbody></table></div>";
+    container.innerHTML = html;
+    updateDashboardStats();
+}
+// Toggle client status (activate/deactivate)
+async function toggleClientStatus(clientId, clientName, newStatus) {
+    const currentStatus = newStatus === 'active' ? 'inactive' : 'active';
+    const action = newStatus === 'active' ? 'activate' : 'deactivate';
+    
+    if (!confirm(`Are you sure you want to ${action} the client "${clientName}"?`)) {
+        // Reset the dropdown to the previous value
+        const dropdowns = document.querySelectorAll(`.status-dropdown`);
+        dropdowns.forEach(dropdown => {
+            if (dropdown.onchange.toString().includes(clientId)) {
+                dropdown.value = currentStatus;
+                dropdown.className = `form-select form-select-sm status-dropdown ${currentStatus === 'active' ? 'bg-success-subtle text-dark' : 'bg-secondary text-white'}`;
+            }
+        });
+        return;
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/clients/${clientId}/status?status=${newStatus}`, {
+            method: 'PATCH'
+        });
+        
+        if (response.ok) {
+            showMessage(`Client "${clientName}" has been ${action}d successfully`, 'success');
+            
+            // Update the dropdown appearance
+            const dropdowns = document.querySelectorAll(`.status-dropdown`);
+            dropdowns.forEach(dropdown => {
+                if (dropdown.onchange.toString().includes(clientId)) {
+                    dropdown.className = `form-select form-select-sm status-dropdown ${newStatus === 'active' ? 'bg-success-subtle text-dark' : 'bg-secondary text-white'}`;
+                }
             });
+            
+            loadClientsTable();
+        } else {
+            // Reset the dropdown if the operation failed
+            const dropdowns = document.querySelectorAll(`.status-dropdown`);
+            dropdowns.forEach(dropdown => {
+                if (dropdown.onchange.toString().includes(clientId)) {
+                    dropdown.value = currentStatus;
+                    dropdown.className = `form-select form-select-sm status-dropdown ${currentStatus === 'active' ? 'bg-success-subtle text-dark' : 'bg-secondary text-white'}`;
+                }
+            });
+            
+            const errorData = await response.json();
+            throw new Error(errorData.detail || `Failed to ${action} client`);
+        }
+    } catch (error) {
+        console.error(`Error ${action}ing client:`, error);
+        showMessage(error.message, 'error');
+        
+        // Reset the dropdown on error
+        const dropdowns = document.querySelectorAll(`.status-dropdown`);
+        dropdowns.forEach(dropdown => {
+            if (dropdown.onchange.toString().includes(clientId)) {
+                dropdown.value = currentStatus;
+                dropdown.className = `form-select form-select-sm status-dropdown ${currentStatus === 'active' ? 'bg-success-subtle text-dark' : 'bg-secondary text-white'}`;
+            }
+        });
+    }
+}
 
-            html += "</tbody></table></div>";
-            content.innerHTML = html;
+
+// View job descriptions for a client
+async function viewJobDescriptions(clientId, clientName) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/job-descriptions/${clientId}`);
+        if (response.ok) {
+            const data = await response.json();
+            showJDModal(clientName, data.job_descriptions);
+        } else {
+            throw new Error('Failed to load job descriptions');
+        }
+    } catch (error) {
+        console.error('Error loading job descriptions:', error);
+        showMessage('Failed to load job descriptions', 'error');
+    }
+}
+
+// Show JD modal with proper job description titles
+// Show JD modal with proper job description titles
+function showJDModal(clientName, jds) {
+    let content = '';
+    
+    if (jds.length === 0) {
+        content = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i> No job descriptions found for this client
+            </div>
+        `;
+    } else {
+        content = `
+            <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>S.No</th>
+                            <th>JD Title</th>
+                            <th>Required <br> Experience</th>
+                            <th>Primary <br> Skills</th>
+                            <th>Secondary <br> Skills</th>
+                            <th>Location</th>
+                            <th>Budget</th>
+                            <th>Number of <br> Positions</th>
+                            <th>Work Mode</th>
+                            <th>Edit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        jds.forEach((jd, index) => {
+            content += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${jd.title || 'Untitled'}</td>
+                    <td>${jd.required_experience || 'Not specified'}</td>
+                    <td>${jd.primary_skills?.join(', ') || 'None'}</td>
+                    <td>${jd.secondary_skills?.join(', ') || 'None'}</td>
+                    <td>${jd.location || 'Not specified'}</td>
+                    <td>${jd.budget || 'Not specified'}</td>
+                    <td>${jd.number_of_positions || 'Not specified'}</td>
+                    <td>${jd.work_mode || 'Not specified'}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="editJobDescription('${jd.id}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        content += `</tbody></table></div>`;
+    }
+    
+    // Create Bootstrap modal
+    const modalId = 'jdModal';
+    if (!document.getElementById(modalId)) {
+        const modalHTML = `
+            <div class="modal fade" id="${modalId}" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Job Descriptions - ${clientName}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body" id="${modalId}Body">
+                            ${content}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    } else {
+        document.getElementById(`${modalId}Body`).innerHTML = content;
+    }
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById(modalId));
+    modal.show();
+}
+
+// Edit client
+function editClient(clientId, clientName) {
+    const modalId = 'editClientModal';
+    const content = `
+        <div class="mb-3">
+            <label for="editClientName" class="form-label">Client Name</label>
+            <input type="text" class="form-control" id="editClientName" value="${clientName}">
+        </div>
+    `;
+    
+    if (!document.getElementById(modalId)) {
+        const modalHTML = `
+            <div class="modal fade" id="${modalId}" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Edit Client</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body" id="${modalId}Body">
+                            ${content}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" onclick="saveClientChanges('${clientId}')">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    } else {
+        document.getElementById(`${modalId}Body`).innerHTML = content;
+        document.getElementById('editClientName').value = clientName;
+    }
+    
+    const modal = new bootstrap.Modal(document.getElementById(modalId));
+    modal.show();
+}
+
+// Save client changes
+async function saveClientChanges(clientId) {
+    const newName = document.getElementById('editClientName').value.trim();
+    
+    if (!newName) {
+        showMessage('Client name cannot be empty', 'error');
+        return;
+    }
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/clients/${clientId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: newName })
+        });
+        
+        if (response.ok) {
+            showMessage('Client updated successfully', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('editClientModal')).hide();
+            loadClientsTable();
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to update client');
+        }
+    } catch (error) {
+        console.error('Error updating client:', error);
+        showMessage(error.message, 'error');
+    }
+}
+
+// Delete client
+// async function deleteClient(clientId, clientName) {
+//     if (!confirm(`Are you sure you want to delete the client "${clientName}"? This will also delete all associated job descriptions.`)) {
+//         return;
+//     }
+    
+//     try {
+//         const response = await apiFetch(`${API_BASE_URL}/clients/${clientId}`, {
+//             method: 'DELETE'
+//         });
+        
+//         if (response.ok) {
+//             showMessage('Client deleted successfully', 'success');
+//             loadClientsTable();
+//         } else {
+//             const errorData = await response.json();
+//             throw new Error(errorData.detail || 'Failed to delete client');
+//         }
+//     } catch (error) {
+//         console.error('Error deleting client:', error);
+//         showMessage(error.message, 'error');
+//     }
+// }
+
+// Edit job description
+async function editJobDescription(jdId) {
+    try {
+        const modalBody = document.getElementById('jdModalBody');
+        const jdRows = modalBody.querySelectorAll('tbody tr');
+        let jdData = null;
+
+        for (const row of jdRows) {
+            const actionBtn = row.querySelector('button.btn-outline-primary');
+            if (actionBtn && actionBtn.onclick.toString().includes(jdId)) {
+                const cells = row.querySelectorAll('td');
+                jdData = {
+                    id: jdId,
+                    title: cells[1].textContent.trim(),
+                    required_experience: cells[2].textContent.trim(),
+                    primary_skills: cells[3].textContent.split(',').map(s => s.trim()),
+                    secondary_skills: cells[4].textContent.split(',').map(s => s.trim()),
+                    location: cells[5].textContent.trim(),
+                    budget: cells[6].textContent.trim(),
+                    number_of_positions: cells[7].textContent.trim(),
+                    work_mode: cells[8].textContent.trim()
+                };
+                break;
+            }
         }
 
-        function showCompanyInfo() {
-            setActiveLink('info');
-            document.getElementById('dataSectionTitle').textContent = 'Company Information';
-            document.getElementById('dataFilterDropdownContainer').style.display = 'block';
-            
-            const content = document.getElementById("dataContent");
-            if (companyData) {
-                content.innerHTML = `
-                    <div class="p-3" style="background: #f8f9fa; border-radius: 8px;">
-                        <h4 class="text-primary mb-3"><i class="fas fa-building me-2"></i>Company Information</h4>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <p><strong>Name:</strong> ${companyData.name}</p>
-                                <p><strong>Description:</strong> ${companyData.description || 'No description'}</p>
+        if (!jdData) throw new Error('Job description data not found');
+
+        const content = `
+            <div class="mb-3">
+                <label class="form-label">Job Title</label>
+                <input type="text" class="form-control" id="editJdTitle" value="${jdData.title}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Required Experience</label>
+                <input type="text" class="form-control" id="editReqExp" value="${jdData.required_experience}" placeholder="e.g., 3-5 years">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Primary Skills (comma separated)</label>
+                <textarea class="form-control" id="editPrimarySkills" rows="2">${jdData.primary_skills.join(', ')}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Secondary Skills (comma separated)</label>
+                <textarea class="form-control" id="editSecondarySkills" rows="2">${jdData.secondary_skills.join(', ')}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Location</label>
+                <input type="text" class="form-control" id="editLocation" value="${jdData.location}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Budget</label>
+                <input type="text" class="form-control" id="editBudget" value="${jdData.budget}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Number of Positions</label>
+                <input type="number" class="form-control" id="editPositions" value="${jdData.number_of_positions}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Work Mode</label>
+                <select class="form-select" id="editWorkMode">
+                    <option value="in-office" ${jdData.work_mode === 'in-office' ? 'selected' : ''}>In-Office</option>
+                    <option value="remote" ${jdData.work_mode === 'remote' ? 'selected' : ''}>Remote</option>
+                    <option value="hybrid" ${jdData.work_mode === 'hybrid' ? 'selected' : ''}>Hybrid</option>
+                </select>
+            </div>
+        `;
+
+        const modalId = 'editJdModal';
+        if (!document.getElementById(modalId)) {
+            const modalHTML = `
+                <div class="modal fade" id="${modalId}" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Edit Job Description</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                             </div>
-                            <div class="col-md-6">
-                                <p><strong>Address:</strong> ${companyData.address || 'No address'}</p>
-                                <p><strong>Created:</strong> ${new Date(companyData.created_at).toLocaleDateString()}</p>
+                            <div class="modal-body" id="${modalId}Body">${content}</div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-primary" onclick="saveJDChanges1('${jdId}')">Save Changes</button>
                             </div>
                         </div>
                     </div>
-                `;
-            } else {
-                content.innerHTML = `
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-triangle me-2"></i> Company information not available
-                    </div>
-                `;
-            }
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        } else {
+            document.getElementById(`${modalId}Body`).innerHTML = content;
         }
 
+        const modal = new bootstrap.Modal(document.getElementById(modalId));
+        modal.show();
+
+    } catch (error) {
+        console.error('Error loading JD details:', error);
+        showMessage(error.message, 'error');
+    }
+}
+// Save JD changes
+async function saveJDChanges1(jdId) {
+    const payload = {
+        title: document.getElementById('editJdTitle').value.trim(),
+        required_experience: document.getElementById('editReqExp').value.trim(),
+        primary_skills: document.getElementById('editPrimarySkills').value.split(',').map(s => s.trim()).filter(Boolean),
+        secondary_skills: document.getElementById('editSecondarySkills').value.split(',').map(s => s.trim()).filter(Boolean),
+        location: document.getElementById('editLocation').value.trim(),
+        budget: document.getElementById('editBudget').value.trim(),
+        number_of_positions: Number(document.getElementById('editPositions').value),
+        work_mode: document.getElementById('editWorkMode').value
+    };
+
+    if (!payload.title || !payload.required_experience || payload.primary_skills.length === 0) {
+        showMessage('Title, required experience, and at least one primary skill are required', 'error');
+        return;
+    }
+
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/job-descriptions/${jdId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            showMessage('Job description updated successfully', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('editJdModal')).hide();
+            loadClientsTable(); // Refresh table
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to update job description');
+        }
+    } catch (error) {
+        console.error('Error updating job description:', error);
+        showMessage(error.message, 'error');
+    }
+}
+
+
+// Delete job description
+// async function deleteJobDescription(jdId, jdTitle) {
+//     if (!confirm(`Are you sure you want to delete the job description "${jdTitle}"?`)) {
+//         return;
+//     }
+    
+//     try {
+//         const response = await apiFetch(`${API_BASE_URL}/job-descriptions/${jdId}`, {
+//             method: 'DELETE'
+//         });
+        
+//         if (response.ok) {
+//             showMessage('Job description deleted successfully', 'success');
+//             // Refresh the JD modal if it's open
+//             const jdModal = document.getElementById('jdModal');
+//             if (jdModal && jdModal.classList.contains('show')) {
+//                 bootstrap.Modal.getInstance(jdModal).hide();
+//             }
+//             // Reload the clients table
+//             loadClientsTable();
+//         } else {
+//             const errorData = await response.json();
+//             throw new Error(errorData.detail || 'Failed to delete job description');
+//         }
+//     } catch (error) {
+//         console.error('Error deleting job description:', error);
+//         showMessage(error.message, 'error');
+//     }
+// }
+        function showCompanyInfo() {
+    document.getElementById('dashboardStats').style.display = 'none';
+    setActiveLink('info');
+    document.getElementById('dataSectionTitle').textContent = 'Company Information';
+    document.getElementById('dataFilterDropdownContainer').style.display = 'block';
+
+    const content = document.getElementById("dataContent");
+
+    if (companyData) {
+        content.innerHTML = `
+            <div class="container">
+                <!-- Logo & Header -->
+                <div class="text-center mb-4">
+                    <label for="logoUpload" style="cursor: pointer;">
+                        ${companyData.logo_url 
+                            ? `<img src="${API_BASE_URL}${companyData.logo_url}" 
+                                    alt="Company Logo" 
+                                    class="rounded-circle shadow-sm" 
+                                    style="width:120px; height:120px; object-fit:cover;">`
+                            : `<div class="rounded-circle bg-light d-flex align-items-center justify-content-center shadow-sm"
+                                    style="width:120px; height:120px;">
+                                    <span class="text-muted">No Logo</span>
+                               </div>`}
+                    </label>
+                    <input type="file" id="logoUpload" accept="image/jpeg,image/png,image/gif" style="display: none;">
+                    <div class="form-text mt-2">Add Logo</div>
+                    <h4 class="mt-3 mb-0">${companyData.name}</h4>
+                </div>
+
+                <!-- General Info -->
+                <div class="row g-3">
+                    <!-- Row 1 -->
+                    <div class="col-md-4">
+                        <label class="form-label">Company Name</label>
+                        <input type="text" class="form-control company-field edit" data-field="name" 
+                            value="${companyData.name}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Company Legal Name</label>
+                        <input type="text" class="form-control company-field edit" data-field="legal_name" 
+                               value="${companyData.legal_name || ''}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Website</label>
+                        <input type="url" class="form-control company-field edit" data-field="website" 
+                               value="${companyData.website || ''}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control company-field edit" data-field="email" 
+                               value="${companyData.email || ''}" readonly>
+                    </div>
+                    
+                    <!-- Row 2 -->
+                    <div class="col-md-4">
+                        <label class="form-label">Mobile</label>
+                        <input type="text" class="form-control company-field edit" data-field="mobile" 
+                               value="${companyData.mobile || ''}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">GST</label>
+                        <input type="text" class="form-control company-field edit" data-field="gst" 
+                               value="${companyData.gst || ''}" readonly>
+                    </div>
+                    
+                    <!-- Row 3 -->
+                    <div class="col-md-4">
+                        <label class="form-label">Country</label>
+                        <input type="text" class="form-control no-edit" value="${companyData.country || ''}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">State</label>
+                        <div class="dropdown-select">
+                            <input type="text" class="form-control company-field edit dropdown-display searchable-dropdown" 
+                                   data-field="state" data-dropdown-type="state"
+                                   value="${companyData.state || ''}" 
+                                   placeholder="Type to search states..." readonly>
+                            <div class="dropdown-options" style="display: none;">
+                                <select class="form-select company-field edit dropdown-list" data-field="state" size="6">
+                                    <option value="">Select State</option>
+                                    <!-- States will be loaded dynamically -->
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">City</label>
+                        <input type="text" class="form-control company-field edit" data-field="city" 
+                               value="${companyData.city || ''}" readonly>
+                    </div>
+
+                    <!-- Row 4 -->
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">Pincode</label>
+                        <input type="text" class="form-control company-field edit" data-field="pincode" 
+                               value="${companyData.pincode || ''}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Quotation Prefix</label>
+                        <input type="text" class="form-control no-edit" data-field="quotation_prefix" 
+                               value="${companyData.quotation_prefix || ''}" readonly>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Registered Address</label>
+                        <input type="text" class="form-control company-field edit" data-field="registered_address" 
+                               value="${companyData.registered_address || ''}" readonly>
+                    </div>
+                </div>
+
+                <!-- Bank Details -->
+                <h5 class="mt-4 mb-3">Bank Details</h5>
+                <div class="row g-3">
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">Bank Name</label>
+                        <div class="dropdown-select">
+                            <input type="text" class="form-control company-field edit dropdown-display searchable-dropdown" 
+                                   data-field="bank_name" data-dropdown-type="bank"
+                                   value="${companyData.bank_name || ''}" 
+                                   placeholder="Type to search banks..." readonly>
+                            <div class="dropdown-options" style="display: none;">
+                                <select class="form-select company-field edit dropdown-list" data-field="bank_name" size="6">
+                                    <option value="">Select Bank</option>
+                                    <!-- Banks will be loaded dynamically -->
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">IFSC Code</label>
+                        <div class="input-group">
+                            <span class="input-group-text" id="ifscPrefixDisplay">${companyData.ifsc_code ? companyData.ifsc_code.substring(0, 4) : '____'}</span>
+                            <input type="text" class="form-control company-field edit" data-field="ifsc_suffix" 
+                                   value="${companyData.ifsc_code ? companyData.ifsc_code.substring(4) : ''}" 
+                                   maxlength="7" pattern="[A-Z0-9]{7}" readonly>
+                            <input type="hidden" class="company-field edit" data-field="ifsc_code" value="${companyData.ifsc_code || ''}">
+                        </div>
+                        
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Bank Branch</label>
+                        <input type="text" class="form-control company-field edit" data-field="bank_branch" 
+                               value="${companyData.bank_branch || ''}" readonly>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">Account Holder Name</label>
+                        <input type="text" class="form-control company-field edit" data-field="account_holder_name" 
+                               value="${companyData.account_holder_name || ''}" readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Account Number</label>
+                        <input type="text" class="form-control company-field edit" data-field="account_number" 
+                               value="${companyData.account_number || ''}" readonly>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Bank Address</label>
+                        <input type="text" class="form-control company-field edit" data-field="bank_address" 
+                               value="${companyData.bank_address || ''}" readonly>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="row mt-4">
+                    <div class="col-12 text-center">
+                        <button class="btn btn-primary" id="updateButton" onclick="updateCompanyInfo()">
+                            <i class="fas fa-upload me-1"></i> Update
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Load dropdown data after rendering
+        loadStatesForCompany(companyData.country, companyData.state);
+        loadActiveBanksForCompany();
+        
+        // Set up logo upload
+        document.getElementById('logoUpload').addEventListener('change', function(e) {
+            uploadCompanyLogo(companyData.id);
+        });
+
+        // Make fields editable on click
+        const fields = document.querySelectorAll('.company-field');
+        fields.forEach(field => {
+            if (field.type === 'text' || field.type === 'email' || field.type === 'url') {
+                field.addEventListener('click', function() {
+                    this.readOnly = false;
+                    this.classList.add('editing');
+                    this.focus();
+                });
+                
+                field.addEventListener('blur', function() {
+                    this.readOnly = true;
+                    this.classList.remove('editing');
+                });
+            }
+        });
+
+        // Setup dropdown functionality
+        setupDropdowns();
+
+    } else {
+        content.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i> Company information not available
+            </div>
+        `;
+    }
+}
+
+// Setup dropdown functionality
+function setupDropdowns() {
+    const searchableDropdowns = document.querySelectorAll('.searchable-dropdown');
+    
+    searchableDropdowns.forEach(dropdown => {
+        // Click to show dropdown
+        dropdown.addEventListener('click', function() {
+            const dropdownContainer = this.parentElement;
+            const optionsContainer = dropdownContainer.querySelector('.dropdown-options');
+            
+            // Hide all other dropdowns
+            document.querySelectorAll('.dropdown-options').forEach(opt => {
+                if (opt !== optionsContainer) {
+                    opt.style.display = 'none';
+                }
+            });
+            
+            // Toggle current dropdown
+            if (optionsContainer.style.display === 'block') {
+                optionsContainer.style.display = 'none';
+            } else {
+                optionsContainer.style.display = 'block';
+                this.readOnly = false;
+                this.focus();
+            }
+        });
+
+        // Enable typing to search
+        dropdown.addEventListener('input', function() {
+            const dropdownContainer = this.parentElement;
+            const dropdownList = dropdownContainer.querySelector('.dropdown-list');
+            const searchTerm = this.value.toLowerCase();
+            
+            if (dropdownList) {
+                const options = dropdownList.options;
+                
+                for (let i = 0; i < options.length; i++) {
+                    const optionText = options[i].textContent.toLowerCase();
+                    if (optionText.includes(searchTerm)) {
+                        options[i].style.display = '';
+                    } else {
+                        options[i].style.display = 'none';
+                    }
+                }
+            }
+        });
+
+        // Close dropdown when focus is lost
+        dropdown.addEventListener('blur', function() {
+            setTimeout(() => {
+                const dropdownContainer = this.parentElement;
+                const optionsContainer = dropdownContainer.querySelector('.dropdown-options');
+                if (optionsContainer) {
+                    optionsContainer.style.display = 'none';
+                }
+                this.readOnly = true;
+            }, 200);
+        });
+    });
+
+    // Handle dropdown selection
+    document.querySelectorAll('.dropdown-list').forEach(select => {
+        select.addEventListener('change', function() {
+            const dropdownContainer = this.closest('.dropdown-select');
+            const display = dropdownContainer.querySelector('.dropdown-display');
+            display.value = this.value;
+            this.closest('.dropdown-options').style.display = 'none';
+            display.readOnly = true;
+            
+            // Update IFSC prefix if bank is selected
+            if (this.dataset.field === 'bank_name') {
+                const selectedOption = this.options[this.selectedIndex];
+                const ifscPrefix = selectedOption?.dataset.ifscPrefix || '';
+                document.getElementById('ifscPrefixDisplay').textContent = ifscPrefix || '____';
+            }
+        });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.dropdown-select')) {
+            document.querySelectorAll('.dropdown-options').forEach(options => {
+                options.style.display = 'none';
+            });
+            document.querySelectorAll('.searchable-dropdown').forEach(dropdown => {
+                dropdown.readOnly = true;
+            });
+        }
+    });
+}
+
+// Update company information
+async function updateCompanyInfo() {
+    const updateData = {};
+    const fields = document.querySelectorAll('.company-field');
+    
+    fields.forEach(field => {
+        const fieldName = field.dataset.field;
+        let value = field.value.trim();
+        
+        if (value) {
+            // Handle IFSC code separately
+            if (fieldName === 'ifsc_suffix') {
+                const prefix = document.getElementById('ifscPrefixDisplay').textContent;
+                if (prefix !== '____' && value) {
+                    updateData['ifsc_code'] = prefix + value.toUpperCase();
+                }
+            } else if (fieldName !== 'ifsc_code') {
+                updateData[fieldName] = value;
+            }
+        }
+    });
+
+    if (Object.keys(updateData).length === 0) {
+        showMessage("No changes to update", "info");
+        return;
+    }
+
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/companies/${companyData.id}`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                "X-User-Role": "company_admin"
+            },
+            body: JSON.stringify(updateData)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Failed to update company information");
+        }
+
+        showMessage("Company information updated successfully", "success");
+        // Refresh company data
+        await loadCompanyData();
+        showCompanyInfo();
+    } catch (error) {
+        showMessage(error.message || "Error updating company information", "error");
+    }
+}
+
+// Upload company logo
+async function uploadCompanyLogo(companyId) {
+    const logoFile = document.getElementById("logoUpload").files[0];
+    
+    if (!logoFile) return;
+    
+    if (logoFile.size > 1024 * 1024) {
+        showMessage("File size must be less than 1MB", "error");
+        return;
+    }
+    
+    if (!logoFile.type.match("image/jpeg|image/png|image/gif")) {
+        showMessage("Only JPEG, PNG and GIF images are allowed", "error");
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append("logo", logoFile);
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/companies/${companyId}/logo`, {
+            method: "POST",
+            headers: {
+                "X-User-Role": "company_admin"
+            },
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Failed to upload logo");
+        }
+        
+        showMessage("Logo updated successfully", "success");
+        // Refresh company data
+        await loadCompanyData();
+        showCompanyInfo();
+    } catch (error) {
+        console.error("Error uploading logo:", error);
+        showMessage(error.message || "Error uploading logo", "error");
+    }
+}
+
+// Load active banks for dropdown
+async function loadActiveBanksForCompany() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/banks?status=active`, {
+        });
+        
+        if (response.ok) {
+            const banks = await response.json();
+            const bankList = document.querySelector('select[data-field="bank_name"]');
+            
+            if (bankList) {
+                // Store current bank value
+                const currentBank = companyData.bank_name;
+                
+                banks.forEach(bank => {
+                    const option = document.createElement("option");
+                    option.value = bank.bank_name;
+                    option.textContent = `${bank.bank_name}`;
+                    option.dataset.ifscPrefix = bank.ifsc_prefix;
+                    bankList.appendChild(option);
+                    
+                    // Select current bank if it matches
+                    if (bank.bank_name === currentBank) {
+                        option.selected = true;
+                        // Update IFSC prefix display
+                        document.getElementById('ifscPrefixDisplay').textContent = bank.ifsc_prefix;
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.error("Error loading banks:", error);
+    }
+}
+
+// Load states for selected country
+async function loadStatesForCompany(countryName, selectedState = null) {
+    try {
+        // First try to get country ID by name
+        const countriesResponse = await apiFetch(`${API_BASE_URL}/countries`, {
+        });
+        
+        if (countriesResponse.ok) {
+            const countries = await countriesResponse.json();
+            let countryId = null;
+            
+            // Find the country ID by name
+            for (const country of countries) {
+                if (country.name === countryName) {
+                    countryId = country.id;
+                    break;
+                }
+            }
+            
+            if (countryId) {
+                const statesResponse = await apiFetch(`${API_BASE_URL}/countries/${countryId}/states`, {
+                });
+                
+                if (statesResponse.ok) {
+                    const states = await statesResponse.json();
+                    const stateList = document.querySelector('select[data-field="state"]');
+                    
+                    if (stateList) {
+                        states.forEach(state => {
+                            const option = document.createElement("option");
+                            option.value = state.name;
+                            option.textContent = state.name;
+                            stateList.appendChild(option);
+
+                            // Select current state if it matches
+                            if (state.name === selectedState) {
+                                option.selected = true;
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error loading states:", error);
+    }
+}
+
+// Add CSS for editing mode and dropdowns
+const style = document.createElement('style');
+style.textContent = `
+.edit{
+    background-color: white !important;
+}
+.no-edit {
+    background-color: #f8f9fa !important;
+    cursor: not-allowed;
+}
+    .company-field.editing {
+        border-color: #667eea;
+        background-color: #f8f9fa;
+    }
+    .company-field:read-only {
+        background-color: #f8f9fa;
+        cursor: pointer;
+    }
+    .company-field:read-only:hover {
+        border-color: #ced4da;
+        background-color: #e9ecef;
+    }
+    .dropdown-select {
+        position: relative;
+    }
+    .dropdown-options {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 100%;
+        z-index: 1000;
+        background: white;
+        border: 1px solid #ced4da;
+        border-top: none;
+        border-radius: 0 0 0.375rem 0.375rem;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+    .dropdown-list {
+        border: none;
+        border-radius: 0;
+        width: 100%;
+    }
+    .dropdown-list option {
+        padding: 0.5rem;
+    }
+    .dropdown-list option:hover {
+        background-color: #f8f9fa;
+    }
+    .input-group-text {
+        min-width: 60px;
+        font-family: monospace;
+        font-weight: bold;
+    }
+    .searchable-dropdown {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='currentColor' class='bi bi-chevron-down' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.75rem center;
+        background-size: 16px 12px;
+    }
+`;
+document.head.appendChild(style);
         // Create a helper function for authenticated requests
-        async function authFetch(url, options = {}) {
-            // Get user data from localStorage
-            const userData = JSON.parse(localStorage.getItem("userData") || "{}");
-            const token = localStorage.getItem("userToken");
-            const role = userData.role || userData?.role;
-            const userId = userData.user_id || userData?.user_id || userData.id || userData?.id;
-            const companyId = userData.company_id || userData?.company_id || "";
-            
-            // Set headers
-            options.headers = {
-                ...options.headers,
-                "X-User-Role": role,
-                "X-User-Id": userId,
-                "X-Company-Id": companyId
+        async function apiFetch(url, options = {}) {
+    const accessToken = localStorage.getItem("access_token");
+    const refreshToken = localStorage.getItem("refresh_token");
+
+    // ✅ Build headers dynamically
+    const headers = {
+        ...options.headers,
+        "Authorization": `Bearer ${accessToken}`
+    };
+
+    // ❌ DO NOT force JSON if sending FormData
+    if (!(options.body instanceof FormData)) {
+        headers["Content-Type"] = options.headers?.["Content-Type"] || "application/json";
+    }
+
+    let response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401 && refreshToken) {
+        const refreshRes = await fetch("http://127.0.0.1:8000/refresh", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${refreshToken}`
+            }
+        });
+
+        if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            localStorage.setItem("access_token", refreshData.access_token);
+
+            const retryHeaders = {
+                ...headers,
+                "Authorization": `Bearer ${refreshData.access_token}`
             };
-            
-            if (token) {
-                options.headers.Authorization = `Bearer ${token}`;
+
+            // Again, do not set Content-Type if body is FormData
+            if (!(options.body instanceof FormData)) {
+                retryHeaders["Content-Type"] = options.headers?.["Content-Type"] || "application/json";
             }
-            
-            const response = await fetch(url, options);
-            
-            // Handle unauthorized responses
-            if (response.status === 401) {
-                localStorage.removeItem("userData");
-                localStorage.removeItem("userToken");
-                window.location.href = "login.html";
-                throw new Error("Unauthorized - redirecting to login");
-            }
-            
-            return response;
+
+            response = await fetch(url, { ...options, headers: retryHeaders });
+        } else {
+            logout();
+            throw new Error("Session expired. Please log in again.");
         }
+    }
 
-        // Analyze resume function
-        async function analyzeResume() {
-            const resumeInput = document.getElementById('resume');
-            const fileError = document.getElementById('file-error');
-            const analyzeBtn = document.getElementById('analyze_btn');
-            const analyzeLoading = document.getElementById('analyzeLoading');
-            
-            // Validate file
-            if (!resumeInput.files.length) { 
-                fileError.textContent = 'Please upload a resume file.';
-                fileError.style.display = 'block';
-                return; 
-            }
-            
-            const file = resumeInput.files[0];
-            const validationResult = validateFile(file);
-            if (!validationResult.isValid) {
-                fileError.textContent = validationResult.message;
-                fileError.style.display = 'block';
-                return;
-            }
-            
-            let jd;
-            const usingExisting = document.querySelector('input[name="client_mode"][value="existing"]').checked;
-            
-            if (usingExisting) {
-                const clientSelect = document.getElementById('existing_client_select');
-                const jdSelect = document.getElementById('jd_select');
-                const jdReqExp = document.getElementById('jd_req_exp');
-                const jdPrimary = document.getElementById('jd_primary');
-                const jdSecondary = document.getElementById('jd_secondary');
-                
-                const name = clientSelect?.value;
-                const jdName = jdSelect?.value;
-                
-                if (!name || name === 'Choose One' || !jdName || jdName === 'Choose One') {
-                    alert('Please select a client and JD.');
-                    return;
-                }
-                
-                jd = {
-                    client_name: name,
-                    jd_title: jdName,
-                    required_experience: jdReqExp?.value.trim() || '',
-                    primary_skills: (jdPrimary?.value || '').split(',').map(s => s.trim()).filter(Boolean),
-                    secondary_skills: (jdSecondary?.value || '').split(',').map(s => s.trim()).filter(Boolean)
-                };
-            } else {
-                const clientName = document.getElementById('client_name')?.value.trim() || '';
-                const jdTitle = document.getElementById('jd_title')?.value.trim() || '';
-                const requiredExp = document.getElementById('required_experience')?.value.trim() || '';
-                const primarySkills = document.getElementById('primary_skills')?.value.trim() || '';
-                const secondarySkills = document.getElementById('secondary_skills')?.value.trim() || '';
+    return response;
+}
 
-                if (!clientName || !jdTitle || !requiredExp || !primarySkills) {
-                    alert('Please fill in all required fields');
-                    return;
-                }
-                
-                if (!/^\d+\s*\+|\d+\s*-\s*\d+$/.test(requiredExp)) {
-                    alert("Invalid experience format! Use '3-5', '4+' or '5 +'");
-                    return;
-                }
-                
-                jd = {
-                    client_name: clientName,
-                    jd_title: jdTitle,
-                    required_experience: requiredExp,
-                    primary_skills: primarySkills ? primarySkills.split(',').map(s => s.trim()).filter(Boolean) : [],
-                    secondary_skills: secondarySkills ? secondarySkills.split(',').map(s => s.trim()).filter(Boolean) : []
-                };
-            }
-
-            const fd = new FormData();
-            fd.append('resume', resumeInput.files[0]);
-            fd.append('jd_data', JSON.stringify(jd));
-
-            const analysisContainer = document.getElementById('analysis_container');
-            analysisContainer.classList.add('hidden');
-            
-            // Show loading indicator
-            analyzeBtn.disabled = true;
-            analyzeLoading.style.display = 'block';
-
+        
+        // Add this function to check if a client exists
+        async function checkClientExists(clientName) {
             try {
-                const resp = await authFetch(`${API_BASE_URL}/analyze`, { method: 'POST', body: fd });
-                if (!resp.ok) {
-                    throw new Error(`Server returned ${resp.status}: ${resp.statusText}`);
-                }
+                const res = await apiFetch(`${API_BASE_URL}/clients`);
+                const clients = await res.json();
                 
-                const json = await resp.json();
-                renderAnalysis(json);
-                // Reload history after analysis
-                loadAnalysisHistory();
-            } catch (err) {
-                console.error('Analysis error:', err);
-                analysisContainer.innerHTML = `
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-triangle me-2"></i> 
-                        Error analyzing resume: ${err.message || 'Unknown error'}
-                    </div>
-                `;
-                analysisContainer.classList.remove('hidden');
-            } finally {
-                // Hide loading indicator
-                analyzeBtn.disabled = false;
-                analyzeLoading.style.display = 'none';
+                // Convert both to lowercase for case-insensitive comparison
+                const clientNameLower = clientName.toLowerCase().trim();
+                return clients.some(client => client.toLowerCase().trim() === clientNameLower);
+            } catch (error) {
+                console.error('Error checking client existence:', error);
+                return false;
             }
         }
 
+        // Add this function to check if a JD exists for a specific client
+        async function checkJDExists(clientName, jdTitle) {
+            try {
+                const res = await apiFetch(`${API_BASE_URL}/clients/${encodeURIComponent(clientName)}/jds`);
+                const jds = await res.json();
+                
+                // Convert both to lowercase for case-insensitive comparison
+                const jdTitleLower = jdTitle.toLowerCase().trim();
+                return jds.some(jd => jd.toLowerCase().trim() === jdTitleLower);
+            } catch (error) {
+                console.error('Error checking JD existence:', error);
+                return false;
+            }
+        }
+
+        // Modify the analyzeResume function to include validation
+        async function analyzeResume() {
+  const resumeInput = document.getElementById('resume');
+  const fileError = document.getElementById('file-error');
+  const analyzeBtn = document.getElementById('analyze_btn');
+  const analyzeLoading = document.getElementById('analyzeLoading');
+
+  let missingFields = [];
+
+  // ✅ Check resume upload
+  if (!resumeInput.files.length) {
+    missingFields.push("Upload Resume");
+  }
+
+  const usingExisting = document.querySelector('input[name="client_mode"][value="existing"]').checked;
+  let jd;
+
+  if (usingExisting) {
+    // Existing client mode
+    const clientSelect = document.getElementById('existing_client_select');
+    const jdSelect = document.getElementById('jd_select');
+    const jdReqExp = document.getElementById('jd_req_exp');
+    const jdPrimary = document.getElementById('jd_primary');
+    const jdSecondary = document.getElementById('jd_secondary');
+    const location = document.getElementById('location');
+    const budget = document.getElementById('budget');
+
+    // Collect missing fields
+    if (!clientSelect.value || clientSelect.value === "Choose One") {
+      missingFields.push("Choose Client");
+    }
+    if (!jdSelect.value || jdSelect.value === "Choose One") {
+      missingFields.push("Choose Job Description");
+    }
+
+    // If required dropdowns not filled → stop here
+    if (missingFields.length) {
+      alert("Please fill in the following required fields:\n- " + missingFields.join("\n- "));
+      return;
+    }
+
+    // Build JD object
+    jd = {
+      client_name: clientSelect.value,
+      jd_title: jdSelect.value,
+      required_experience: jdReqExp?.value.trim() || '',
+      primary_skills: (jdPrimary?.value || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+      secondary_skills: (jdSecondary?.value || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+    };
+
+  } else {
+    // New client mode
+    const clientName = document.getElementById('client_name')?.value.trim();
+    const jdTitle = document.getElementById('jd_title')?.value.trim();
+    const requiredExp = document.getElementById('required_experience')?.value.trim();
+    const primarySkills = document.getElementById('primary_skills')?.value.trim();
+    const secondarySkills = document.getElementById('secondary_skills')?.value.trim();
+
+    // New fields
+    const location = document.getElementById('location')?.value.trim();
+    const budget = document.getElementById('budget')?.value.trim();
+    const numberOfPositions = document.getElementById('number_of_positions')?.value;
+    const workMode = document.getElementById('work_mode')?.value;
+
+    // Validate required fields
+    if (!clientName) missingFields.push("Client Name");
+    if (!jdTitle) missingFields.push("Job Description Name");
+    if (!requiredExp) missingFields.push("Required Experience");
+    if (!primarySkills) missingFields.push("Primary Skills");
+    if (!location) missingFields.push("Location");       // ✅ NEW
+    if (!budget) missingFields.push("Budget");           // ✅ NEW
+
+    // If some required fields are missing → stop here
+    if (missingFields.length) {
+      alert("Please fill in the following required fields:\n- " + missingFields.join("\n- "));
+      return;
+    }
+
+    // Validate required experience format
+    if (!/^\d+\s*\+|\d+\s*-\s*\d+$/.test(requiredExp)) {
+      alert("Invalid experience format! Use '3-5', '4+' or '5 +'");
+      return;
+    }
+
+    // Check for duplicate JD
+    const jdExists = await checkJDExists(clientName, jdTitle);
+    if (jdExists) {
+      alert(`Job Description "${jdTitle}" already exists for client "${clientName}". Please use a different name.`);
+      return;
+    }
+
+    // Build JD object
+    jd = {
+      client_name: clientName,
+      jd_title: jdTitle,
+      required_experience: requiredExp,
+      primary_skills: primarySkills
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+      secondary_skills: secondarySkills
+        ? secondarySkills.split(',').map(s => s.trim()).filter(Boolean)
+        : [],
+      location: location || null,
+      budget: budget || null,
+      number_of_positions: numberOfPositions ? parseInt(numberOfPositions) : null,
+      work_mode: workMode || null,
+    };
+  }
+
+  // If resume missing after JD is valid → show specific error
+  if (!resumeInput.files.length) {
+    fileError.textContent = 'Please upload a resume file.';
+    fileError.style.display = 'block';
+    return;
+  }
+  fileError.style.display = 'none';
+
+  // === Continue with API call ===
+  const fd = new FormData();
+  fd.append('resume', resumeInput.files[0]);
+  fd.append('jd_data', JSON.stringify(jd));
+
+  const analysisContainer = document.getElementById('analysis_container');
+  analysisContainer.classList.add('hidden');
+  analyzeBtn.disabled = true;
+  analyzeLoading.style.display = 'block';
+
+  try {
+    const resp = await apiFetch(`${API_BASE_URL}/analyze`, {
+      method: 'POST',
+      body: fd,
+    });
+
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}: ${resp.statusText}`);
+
+    const json = await resp.json();
+    renderAnalysis(json);
+    loadAnalysisHistory();
+
+  } catch (err) {
+    console.error('Analysis error:', err);
+    analysisContainer.innerHTML = `
+      <div class="alert alert-danger">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        Error analyzing resume: ${err.message || 'Unknown error'}
+      </div>
+    `;
+    analysisContainer.classList.remove('hidden');
+
+  } finally {
+    analyzeBtn.disabled = false;
+    analyzeLoading.style.display = 'none';
+  }
+}
+
+
+
+        // Add real-time validation for client name input (informational only)
+        function initClientNameValidation() {
+            const clientNameInput = document.getElementById('client_name');
+            if (!clientNameInput) return;
+            
+            let validationTimeout;
+            
+            clientNameInput.addEventListener('input', function() {
+                clearTimeout(validationTimeout);
+                const clientName = this.value.trim();
+                
+                if (!clientName) {
+                    // Remove any existing messages
+                    const warning = this.nextElementSibling;
+                    if (warning && warning.classList.contains('client-warning')) {
+                        warning.remove();
+                    }
+                    return;
+                }
+                
+                validationTimeout = setTimeout(async () => {
+                    const exists = await checkClientExists(clientName);
+                    
+                    // Show informational message (not an error)
+                    let message = this.nextElementSibling;
+                    if (!message || !message.classList.contains('client-warning')) {
+                        message = document.createElement('div');
+                        message.className = 'client-warning small mt-1';
+                        this.parentNode.appendChild(message);
+                    }
+                    
+                    if (exists) {
+                        message.textContent = `Client "${clientName}" already exists. You can create a new job description for this client.`;
+                        message.className = 'client-warning text-info small mt-1';
+                        this.style.borderColor = '';
+                    } else {
+                        message.textContent = `This will create a new client "${clientName}".`;
+                        message.className = 'client-warning text-success small mt-1';
+                        this.style.borderColor = '';
+                    }
+                }, 800); // Delay to avoid too many API calls
+            });
+        }
+
+        // Add real-time validation for JD title input
+        function initJDTitleValidation() {
+            const jdTitleInput = document.getElementById('jd_title');
+            const clientNameInput = document.getElementById('client_name');
+            
+            if (!jdTitleInput || !clientNameInput) return;
+            
+            let validationTimeout;
+            
+            jdTitleInput.addEventListener('input', function() {
+                clearTimeout(validationTimeout);
+                const jdTitle = this.value.trim();
+                const clientName = clientNameInput.value.trim();
+                
+                if (!jdTitle) {
+                    // Remove any existing messages
+                    const warning = this.nextElementSibling;
+                    if (warning && warning.classList.contains('jd-warning')) {
+                        warning.remove();
+                    }
+                    this.style.borderColor = '';
+                    return;
+                }
+                
+                if (!clientName) {
+                    // Remove any existing messages
+                    const warning = this.nextElementSibling;
+                    if (warning && warning.classList.contains('jd-warning')) {
+                        warning.remove();
+                    }
+                    this.style.borderColor = '';
+                    return;
+                }
+                
+                validationTimeout = setTimeout(async () => {
+                    const exists = await checkJDExists(clientName, jdTitle);
+                    if (exists) {
+                        this.setCustomValidity(`Job Description "${jdTitle}" already exists for client "${clientName}".`);
+                        this.style.borderColor = '#dc3545';
+                        
+                        // Show warning message
+                        let warning = this.nextElementSibling;
+                        if (!warning || !warning.classList.contains('jd-warning')) {
+                            warning = document.createElement('div');
+                            warning.className = 'jd-warning text-danger small mt-1';
+                            this.parentNode.appendChild(warning);
+                        }
+                        warning.textContent = `Job Description "${jdTitle}" already exists for this client.`;
+                    } else {
+                        this.setCustomValidity('');
+                        this.style.borderColor = '';
+                        
+                        // Remove warning message
+                        const warning = this.nextElementSibling;
+                        if (warning && warning.classList.contains('jd-warning')) {
+                            warning.remove();
+                        }
+                    }
+                }, 800); // Delay to avoid too many API calls
+            });
+            
+            // Also validate when client name changes
+            clientNameInput.addEventListener('input', function() {
+                if (jdTitleInput.value.trim()) {
+                    jdTitleInput.dispatchEvent(new Event('input'));
+                }
+            });
+        }
+
+   
+        // Add real-time validation for Required Experience input
+        function initRequiredExpValidation() {
+            const reqExpInput = document.getElementById('required_experience');
+            if (!reqExpInput) return;
+
+            let validationTimeout;
+
+            reqExpInput.addEventListener('input', function() {
+                clearTimeout(validationTimeout);
+                const value = this.value.trim();
+
+                // Remove old warning if exists
+                let warning = this.nextElementSibling;
+                if (warning && warning.classList.contains('exp-warning')) {
+                    warning.remove();
+                }
+
+                validationTimeout = setTimeout(() => {
+                    if (!value) {
+                        this.setCustomValidity('Required experience is mandatory.');
+                        this.style.borderColor = '#dc3545';
+
+                        warning = document.createElement('div');
+                        warning.className = 'exp-warning text-danger small mt-1';
+                        warning.textContent = 'Required experience is mandatory.';
+                        this.parentNode.appendChild(warning);
+                        return;
+                    }
+
+                    // Allow formats like "3-5", "4+", "5 +"
+                    const expPattern = /^(\d+\s*-\s*\d+|\d+\s*\+)$/;
+                    if (!expPattern.test(value)) {
+                        this.setCustomValidity("Invalid format! Use '3-5', '4+' or '5 +'.");
+                        this.style.borderColor = '#dc3545';
+
+                        warning = document.createElement('div');
+                        warning.className = 'exp-warning text-danger small mt-1';
+                        warning.textContent = "Invalid format! Use '3-5', '4+' or '5 +'.";
+                        this.parentNode.appendChild(warning);
+                    } else {
+                        this.setCustomValidity('');
+                        this.style.borderColor = '';
+
+                        warning = document.createElement('div');
+                        warning.className = 'exp-warning text-success small mt-1';
+                        warning.textContent = `Valid format detected: "${value}"`;
+                        this.parentNode.appendChild(warning);
+                    }
+                }, 500); // Delay for smoother typing experience
+            });
+        }
+        // Add real-time validation for Primary Skills input
+        function initPrimarySkillsValidation() {
+            const skillsInput = document.getElementById('primary_skills');
+            if (!skillsInput) return;
+
+            let validationTimeout;
+
+            skillsInput.addEventListener('input', function() {
+                clearTimeout(validationTimeout);
+                const value = this.value.trim();
+
+                // Remove old warning if exists
+                let warning = this.nextElementSibling;
+                if (warning && warning.classList.contains('skills-warning')) {
+                    warning.remove();
+                }
+
+                validationTimeout = setTimeout(() => {
+                    if (!value) {
+                        this.setCustomValidity('Primary skills are mandatory.');
+                        this.style.borderColor = '#dc3545';
+
+                        warning = document.createElement('div');
+                        warning.className = 'skills-warning text-danger small mt-1';
+                        warning.textContent = 'Primary skills are mandatory.';
+                        this.parentNode.appendChild(warning);
+                        return;
+                    }
+
+                    // ✅ Valid (not empty)
+                    this.setCustomValidity('');
+                    this.style.borderColor = '';
+
+                    warning = document.createElement('div');
+                    warning.className = 'skills-warning text-success small mt-1';
+                    warning.textContent = `Skills entered: ${value}`;
+                    this.parentNode.appendChild(warning);
+                }, 500);
+            });
+        }
         // Render analysis results
         function renderAnalysis(payload) {
             const analysisContainer = document.getElementById('analysis_container');
@@ -1697,57 +4199,87 @@
             const positions = (data.experience_analysis && data.experience_analysis.positions) || [];
             const totalExp = (data.experience_analysis && data.experience_analysis.total_experience) || 'N/A';
             const expMatch = (data.experience_analysis && data.experience_analysis.experience_match) || false;
-            const missingDates = (data.experience_analysis && data.experience_analysis.positions_with_missing_dates) || 0;
-            const isFresher = (data.experience_analysis && data.experience_analysis.is_fresher) || false;
+            const jdExp = (data.experience_analysis && data.experience_analysis.required_experience) || "N/A";
             const summary = data.summary || '';
 
             const rows = positions.map((p, i) => `
                 <tr>
                     <td>${i+1}</td>
                     <td><b>${p.company || 'Unknown'}</b><br/>${p.title || 'Unknown'}</td>
-                    <td>${p.duration_missing ? '<span style="color:red;">📅 Dates Missing</span>' : (p.duration || 'N/A')}</td>
+                    <td>
+                        ${p.duration_missing 
+                            ? '<span style="color:red;">📅 Dates Missing</span>' 
+                            : (() => {
+                                if (p.duration && p.duration.includes("-")) {
+                                    const [start, end] = p.duration.split("-");
+                                    return `${start.trim()} - ${end.trim()}`;
+                                }
+                                return p.duration || 'N/A';
+                            })()
+                        }
+                    </td>
                     <td>${p.duration_missing ? '' : (p.duration_length || 'N/A')}</td>
                     <td>${p.is_internship ? '🎓 Internship' : '💼 Full-time'}</td>
                 </tr>
             `).join('');
 
+            // Add total experience row at the end
+            const totalRow = `
+                <tr class="total-exp-row">
+                    <td></td>
+                    <td style="text-align:center; font-weight:bold; background:#fffde7;">Total Experience</td>
+                    <td></td>
+                    <td style="background:#fffde7;"><b>${totalExp}</b></td>
+                    <td></td>
+                </tr>
+            `;
+
+
             analysisContainer.innerHTML = `
                 <div class="analysis-card">
-                    <div class="report-header">
-                        <img src="static/logo1.png" width="90" height="60" />
-                        <div>
-                            <h3>Resume Analysis Report</h3>
-                        </div>
-                    </div>
+                    <h2 style="text-align: center;">Resume Analysis Report</h2>
+                    <p class="candidate-name">👤 Candidate Name: <b>${candidateName}</b></p>
 
-                    <div class="candidate-name">👤 Candidate Name: ${candidateName}</div>
-
-                    <div class="match-score-box">
-                        <div><strong>Overall Match Score:</strong></div>
+                    <div class="match-score">
                         <div class="progress-circle" style="background: conic-gradient(#4CAF50 ${score}%, #f0f0f0 ${score}% 100%);">
-                            <div class="progress-circle-inner"><span class="progress-score">${score}%</span></div>
+                            <div class="progress-circle-inner"><span>${score}%</span></div>
+                        </div>
+                        <div><strong>Overall Match Score</strong></div>
+                    </div>
+
+                    ${summary ? `
+                    <div class="profile-feedback">
+                        <strong>📝 Profile Feedback</strong>
+                        <div class="panel">${summary}</div>
+                    </div>` : ''}
+
+                    <h3>📊 Experience Analysis</h3>
+                    <div class="metrics">
+                        <div class="metric-card">
+                            <div class="metric-title">Required Experience per JD</div>
+                            <div class="metric-value">${jdExp} Years</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-title">Candidate’s Experience</div>
+                            <div class="metric-value">${totalExp}</div>
+                        </div>
+                        <div class="metric-card ${expMatch ? 'match' : 'no-match'}">
+                            <div class="metric-title">Experience Match</div>
+                            <div class="metric-value">${expMatch ? '✅ Match' : '❌ No Match'}</div>
                         </div>
                     </div>
 
-                    ${summary ? `<div class="profile-feedback"><strong>📝 Profile Feedback</strong><div class="panel">${summary}</div></div>` : ''}
-
-                    <h4>📅 Experience Analysis</h4>
-                    <div class="metrics">
-                        <div class="metric-card"><div class="metric-title">⏳ Candidate's Experience</div><div class="metric-value">${totalExp}</div></div>
-                        <div class="metric-card ${expMatch ? '' : 'no-match'}"><div class="metric-title">🧐 Experience Match</div><div class="metric-value ${expMatch ? 'success' : 'error'}">${expMatch ? '✅ Match' : '❌ No Match'}</div></div>
-                        <div class="metric-card"><div class="metric-title">Status</div><div class="metric-value">${isFresher ? '👶 Fresher' : (missingDates > 0 ? `⚠️ ${missingDates} positions missing dates` : '✅ Complete dates')}</div></div>
-                    </div>
-
+                    <h3>📑 Detailed Work History</h3>
                     <div class="table">
                         <table>
-                            <thead>
+                            <thead style="background:#fffde7;">
                                 <tr><th>S.No</th><th>Company & Role</th><th>Start & End Date</th><th>Duration</th><th>Job Type</th></tr>
                             </thead>
-                            <tbody>${rows}</tbody>
+                            <tbody>${rows}${totalRow}</tbody>
                         </table>
                     </div>
 
-                    <h4>💡 Skills Analysis Summary</h4>
+                    <h3>💡 Skills Analysis Summary</h3>
                     <div class="skill-row">
                         <div class="skill-box">
                             <h5>Primary Skills (Must Have)</h5>
@@ -1767,90 +4299,119 @@
             analysisContainer.classList.remove('hidden');
         }
 
+
         // Load analysis history
         async function loadAnalysisHistory() {
-            try {
-                const res = await authFetch(`${API_BASE_URL}/history`);
-                if (res.ok) {
-                    analysisHistory = await res.json();
-                    // Update stats
-                    document.getElementById("analysesCount").textContent = analysisHistory.length;
-                    
-                    // Count unique clients
-                    const uniqueClients = new Set(analysisHistory.map(item => item.client_name)).size;
-                    document.getElementById("clientsCount").textContent = uniqueClients;
-                }
-            } catch (error) {
-                console.error('Error loading analysis history:', error);
-            }
+    try {
+        // Fetch resume analyses history
+        const res = await apiFetch(`${API_BASE_URL}/history`);
+        if (res.ok) {
+            analysisHistory = await res.json();
+
+            // Update analyses count safely
+            const analysesEl = document.getElementById("analysesCount");
+            if (analysesEl) analysesEl.textContent = analysisHistory.length;
         }
+
+        // Fetch clients
+        const clientsResponse = await apiFetch(`${API_BASE_URL}/clients/table-data`);
+        if (clientsResponse.ok) {
+            const clients = await clientsResponse.json();
+            const activeClients = clients.filter(client => client.status === 'active');
+
+            const clientsEl = document.getElementById("clientsCount");
+            if (clientsEl) clientsEl.textContent = activeClients.length;
+        }
+
+    } catch (error) {
+        console.error("Error loading dashboard stats:", error);
+    }
+}
+
 
         // History functionality
         async function loadHistory() {
-            const historySearch = document.getElementById('history_search');
             const historyTable = document.getElementById('history_table');
-            
+            const userFilter = document.getElementById('user_filter');
+
             if (!historyTable) return;
-            
+
             historyTable.innerHTML = '<div class="text-center p-4">Loading history...</div>';
-            
+
             try {
                 let items = analysisHistory;
-                const q = (historySearch?.value || '').toLowerCase();
-                
-                if (q) {
-                    items = items.filter(x =>
-                        (x.candidate_name || '').toLowerCase().includes(q) ||
-                        (x.candidate_email || '').toLowerCase().includes(q) ||
-                        (x.client_name || '').toLowerCase().includes(q) ||
-                        (x.jd_title || '').toLowerCase().includes(q)
-                    );
+
+                const selectedUserId = userFilter ? userFilter.value : 'all';
+
+                // 🔹 Apply user filter
+               
+                if (selectedUserId !== 'all') {
+                    // Show only selected user’s history (admin or regular user)
+                    items = items.filter(x => x.created_by === selectedUserId);
                 }
-                
-                items.sort((a,b) => (a.timestamp||'').localeCompare(b.timestamp||'')).reverse();
+
+
+
+                // 🔹 Apply current month filter
+                const now = new Date();
+                const currentMonth = now.getMonth();  // 0 = Jan
+                const currentYear = now.getFullYear();
+
+                items = items.filter(x => {
+                    if (!x.timestamp) return false;
+                    const date = new Date(x.timestamp);
+                    return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+                });
+
+                // 🔹 Sort newest first
+                items.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')).reverse();
 
                 if (items.length === 0) {
-                    historyTable.innerHTML = '<div class="text-center p-4">No analysis history found</div>';
+                    historyTable.innerHTML = '<div class="text-center p-4">No analysis history found for this month</div>';
                     return;
                 }
 
+                // 🔹 Build table rows
                 const rows = items.map((h, idx) => `
                     <tr>
-                        <td>${idx+1}</td>
-                        <td>${h.candidate_name||'N/A'}</td>
-                        <td>${h.client_name||'N/A'}</td>
-                        <td>${h.jd_title||'N/A'}</td>
-                        <td>${h.required_experience||'N/A'} Years</td>
-                        <td>${h.total_experience||'N/A'}</td>
+                        <td>${idx + 1}</td>
+                        <td>${h.candidate_name || 'N/A'}</td>
+                        <td>${h.candidate_email || 'N/A'}</td>
+                        <td>${h.client_name || 'N/A'}</td>
+                        <td>${h.jd_title || 'N/A'}</td>
+                        <td>${h.required_experience || 'N/A'} Years</td>
+                        <td>${h.total_experience || 'N/A'}</td>
                         <td style="text-align: center;">${h.experience_match ? '✅' : '❌'}</td>
-                        <td>${h.filename||'N/A'}</td>
                         <td>${h.match_score ?? 'N/A'}</td>
-                        <td>${h.candidate_email||'N/A'}</td>
+                        <td>${h.filename || 'N/A'}</td>
+                        <td>${h.page_count || 'N/A'}</td>
                         <td>${formatDate(h.timestamp)}</td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" onclick="downloadResume('${h.analysis_id}')">
-                                Download
+                                <i class="fa fa-download"></i>
                             </button>
                         </td>
                     </tr>
                 `).join('');
 
+                // 🔹 Render table
                 historyTable.innerHTML = `
                     <div class="table-responsive">
-                        <table class="table">
+                        <table id="historyTable" class="table table-striped table-bordered">
                             <thead>
                                 <tr>
                                     <th>S.No</th>
                                     <th>Candidate Name</th>
-                                    <th>Client Name</th>
-                                    <th>Job Description</th>
-                                    <th>Required Exp</th>
-                                    <th>Candidate Exp</th>
-                                    <th>Exp Match</th>
-                                    <th>File Name</th>
-                                    <th>Score</th>
                                     <th>Email</th>
-                                    <th>Time</th>
+                                    <th>Client</th>
+                                    <th>Job Description</th>
+                                    <th>Required <br> Experience</th>
+                                    <th>Candidate <br> Experience</th>
+                                    <th>Experience <br> Match</th>
+                                    <th>Score</th>
+                                    <th>File Name</th>
+                                    <th>Parsed <br> Pages</th>
+                                    <th>Parsed Date</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -1858,23 +4419,140 @@
                         </table>
                     </div>
                 `;
+
+                // 🔹 Initialize DataTable
+                $('#historyTable').DataTable({
+                    pageLength: 10,
+                    lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+                    language: { lengthMenu: "_MENU_" },
+                    order: [],
+                    columnDefs: [
+                        { orderable: true, targets: [0, 1, 8, 10, 11] },
+                        { orderable: false, targets: '_all' },
+                        { width: "120px", targets: "_all" }
+                    ],
+                    dom: `
+                        <"d-flex justify-content-between align-items-center mb-3"
+                            <"d-flex" lB>
+                            f
+                        >
+                        rt
+                        <"d-flex justify-content-between align-items-center mt-3"
+                            i
+                            p
+                        >
+                    `,
+                    buttons: [
+                        {
+                            extend: 'excelHtml5',
+                            text: '<i class="fa fa-file-excel text-success"></i>',
+                            title: 'Analysis_History_' + (() => {
+                                const today = new Date();
+                                const day = String(today.getDate()).padStart(2, '0');
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const year = today.getFullYear();
+                                return `${day}-${month}-${year}`;
+                            })(),
+                            sheetName: 'analysis_history',
+                            exportOptions: { columns: ':not(:last-child)' }
+                        },
+                        {
+                            extend: 'pdfHtml5',
+                            text: '<i class="fa fa-file-pdf text-danger"></i>',
+                            title: 'Analysis_History_' + (() => {
+                                const today = new Date();
+                                const day = String(today.getDate()).padStart(2, '0');
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const year = today.getFullYear();
+                                return `${day}-${month}-${year}`;
+                            })(),
+                            orientation: 'landscape',
+                            pageSize: 'A3',
+                            exportOptions: { columns: [0,1,2,3,4,5,6,7,8,9,10,11] },
+                            customize: function (doc) {
+                                doc.styles.tableHeader = {
+                                    fillColor: '#f2f2f2',
+                                    color: 'black',
+                                    alignment: 'left',
+                                    bold: true
+                                };
+                                doc.defaultStyle.fontSize = 8;
+                                doc.content[1].table.widths = [
+                                    '3%', '15%', '15%', '10%', '15%', '6%', '6%', '5%', '4%', '10%', '3%', '7%'
+                                ];
+
+                                // Add custom layout
+                                doc.content[1].layout = {
+                                    hLineWidth: function (i, node) {
+                                        if (i === 1) return 2;  // Thick bottom border for header row
+                                        return 0.5;            // Thin horizontal borders elsewhere
+                                    },
+                                    vLineWidth: function (i, node) {
+                                        return 0.5;           // Thin vertical borders
+                                    },
+                                    hLineColor: function (i, node) {
+                                        return 'black';       // Dark black border color
+                                    },
+                                    vLineColor: function (i, node) {
+                                        return 'black';       // Dark black border color
+                                    },
+                                    paddingLeft: function(i, node) { return 4; },
+                                    paddingRight: function(i, node) { return 4; },
+                                    paddingTop: function(i, node) { return 2; },
+                                    paddingBottom: function(i, node) { return 2; }
+                                };
+
+                                var rowCount = doc.content[1].table.body.length;
+                                for (var i = 1; i < rowCount; i++) {
+                                    let expMatch = doc.content[1].table.body[i][7].text;
+                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][7].text = "Yes";
+                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][7].text = "No";
+
+                                    doc.content[1].table.body[i][6].alignment = 'center';
+                                    doc.content[1].table.body[i][7].alignment = 'center';
+                                    doc.content[1].table.body[i][8].alignment = 'center';
+                                    doc.content[1].table.body[i][10].alignment = 'center';
+                                    doc.content[1].table.body[i][11].alignment = 'center';
+                                }
+
+                                doc.pageMargins = [20, 20, 20, 30];
+
+                                doc['footer'] = function(currentPage, pageCount) {
+                                    return { text: currentPage.toString() + ' / ' + pageCount, alignment: 'right', margin: [0, 0, 20, 0] };
+                                };
+                            }
+                        },
+                        {
+                            extend: 'print',
+                            text: '<i class="fa fa-print text-primary"></i>',
+                            title: 'Analysis_History_' + (() => {
+                                const today = new Date();
+                                const day = String(today.getDate()).padStart(2, '0');
+                                const month = String(today.getMonth() + 1).padStart(2, '0');
+                                const year = today.getFullYear();
+                                return `${day}-${month}-${year}`;
+                            })(),
+                            exportOptions: { columns: ':not(:last-child)' }
+                        }
+                    ]
+                });
+
             } catch (e) {
                 console.error('Error loading history:', e);
                 historyTable.innerHTML = '<div class="alert alert-danger">Failed to load history</div>';
             }
         }
 
+
+
         // Download resume file
         function getAuthToken() {
-    // Implement based on your auth system
-    return localStorage.getItem('authToken');
-}
+            // Implement based on your auth system
+            return localStorage.getItem('access_token');
+        }
         async function downloadResume(analysisId) {
             try {
-                const response = await authFetch(`${API_BASE_URL}/download/${analysisId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${getAuthToken()}`
-                    }
+                const response = await apiFetch(`${API_BASE_URL}/download/${analysisId}`, {
                 });
                 
                 if (!response.ok) {
@@ -1907,6 +4585,9 @@
         // Filter history based on search input
         function filterHistory() {
             loadHistory();
+        }
+        function filterHistory_report(){
+            loadHistory_report();
         }
 
         // Format date for display
@@ -1948,10 +4629,7 @@
         }
 
         function logout() {
-            // Reset active link to dashboard for next login
-            localStorage.setItem('activeLink', 'dashboard');
-            localStorage.removeItem("userData");
-            localStorage.removeItem("userToken");
+            localStorage.clear();
             window.location.href = "index.html";
         }
     </script>

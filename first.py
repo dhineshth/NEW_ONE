@@ -23,8 +23,8 @@ import uuid, bcrypt
 from pymongo import MongoClient
 
 # Connect with proper DB
-client = MongoClient("mongodb://tladmin:TlAdminDh@103.146.234.83:27017/?authSource=admin")
-
+#client = MongoClient("mongodb://tladmin:TlAdminDh@103.146.234.83:27017/?authSource=admin")
+client = MongoClient("mongodb://localhost:27017")
 # Select database
 db = client["tlrecruitdb"]
 

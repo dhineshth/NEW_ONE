@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Company Dashboard - Resume Analyzer</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.dataTables.min.css">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+
+    <!-- jQuery + DataTables + Export Plugins -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.36/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.36/vfs_fonts.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/company-dashboard.css') }}">
+</head>
+<body>
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <img id="sidebarCompanyLogo" src="" alt="Company Logo" class="rounded-circle shadow-sm" 
+                                    style="width:100px; height:100px; object-fit:cover;">
+            <h3>Company Admin</h3>
+        </div>
+        <div class="sidebar-menu">
+            <ul class="nav flex-column">
+                <li class="nav-item">
+                    <a class="nav-link active" href="#" data-link="dashboard" onclick="showDashboard()">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span class="link-text">Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="info" onclick="showCompanyInfo()">
+                        <i class="fas fa-info-circle"></i>
+                        <span class="link-text">Company Info</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="clients" onclick="showClientsMenu()">
+                        <i class="fas fa-building"></i>
+                        <span class="link-text">My Clients</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="users" onclick="loadCompanyUsers()">
+                        <i class="fas fa-users"></i>
+                        <span class="link-text">My Users</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="resume-analyzer" onclick="showResumeAnalyzer()">
+                        <i class="fas fa-file-alt"></i>
+                        <span class="link-text">Resume Analyzer</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="analysis-history" onclick="showAnalysisHistory()">
+                        <i class="fas fa-history"></i>
+                        <span class="link-text">Analysis History</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="report" onclick="report()">
+                        <i class="fas fa-file"></i>
+                        <span class="link-text">Reports</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-link="company-audit-logs" onclick="loadCompanyAuditLogs()">
+                        <i class="fas fa-list-alt"></i>
+                        <span class="link-text">Audit Logs</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="content">
+        <!-- Top Navbar -->
+        <nav class="top-navbar navbar navbar-expand navbar-light bg-white">
+            <div class="container-fluid">
+                <button class="btn btn-link d-md-none" type="button" onclick="toggleSidebar()">
+                    <i class="fas fa-bars"></i>
+                </button>
+                
+                <div class="ms-auto d-flex align-items-center">
+                    <div class="dropdown">
+                        <div class="user-info dropdown-toggle" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="cursor: pointer;">
+                            <div class="avatar" id="userInitial">A</div>
+                        </div>
+                        <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="userDropdown">
+                            <li class="dropdown-item-text">
+                                <div class="fw-bold" id="userName">Admin</div>
+                                <small class="text-muted">Company Admin</small>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="logout()">
+                                <i class="fas fa-sign-out-alt me-2"></i>Logout
+                            </a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Dashboard Content -->
+        <div class="container-fluid py-4">
+            <!-- Welcome Section -->
+            <!-- <div class="row mb-4 animate-fade">
+                <div class="col-12">
+                    <div class="card dashboard-card">
+                        <div class="card-body text-center py-4">
+                            <h2 class="card-title text-primary">Company Admin Dashboard</h2>
+                            <p class="card-text text-muted">Manage your company's users and operations</p>
+                        </div>
+                    </div>
+                </div>
+            </div> -->
+
+            <!-- Stats Cards -->
+            <!-- Stats Cards -->
+            <div id="dashboardStats" class="row mb-4 animate-fade">
+                <div class="col-12">
+                    <div class="stats-grid">
+                        <div class="stats-card" style="cursor: pointer;" onclick="loadCompanyUsers()">
+                            <div class="stats-number text-primary" id="activeUsersCount">0</div>
+                            <div class="stats-label">Active Users</div>
+                        </div>
+                       <div class="stats-card" style="cursor: pointer;" onclick="showResumeAnalyzer()">
+                            <div class="stats-number text-success" id="monthlyAnalysesCount">0</div>
+                            <div class="stats-label" id="analysesLabel">Analyzed Resumes - </div>
+                        </div>
+                        <div class="stats-card" style="cursor: pointer;" onclick="showAnalysisHistory()">
+                            <div class="stats-number text-info" id="monthlyPagesCount">0</div>
+                            <div class="stats-label" id="pagesLabel">Parsed Pages - </div>
+                        </div>
+                        <div class="stats-card" style="cursor: pointer;" onclick="showClientsMenu()">
+                            <div class="stats-number text-warning" id="clientsCount">0</div>
+                            <div class="stats-label">Active Clients</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+                        
+            <!-- Data Section -->
+            <div class="row animate-fade">
+                <div class="col-12">
+                    <div class="card dashboard-card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="card-title mb-0" id="dataSectionTitle">Company Data</h5>
+                                <div class="dropdown" id="dataFilterDropdownContainer">
+                                    <!-- <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="dataFilterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="fas fa-filter"></i> Options
+                                    </button>
+                                    <ul class="dropdown-menu" aria-labelledby="dataFilterDropdown">
+                                        <li><a class="dropdown-item" href="#" onclick="loadCompanyUsers()">View Users</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="showCompanyInfo()">Company Info</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="showResumeAnalyzer()">Resume Analyzer</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="showAnalysisHistory()">Analysis History</a></li>
+                                    </ul> -->
+                                </div>
+                            </div>
+                            <div id="dataContent">
+                                <p class="text-muted text-center py-4">Select an option from the sidebar or quick actions to view data</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Add this to your head section -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', path='/js/company-dashboard.js') }}"></script>
+   
+</body>
+</html>

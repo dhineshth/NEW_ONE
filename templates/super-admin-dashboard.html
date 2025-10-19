@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Admin Dashboard</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/super-admin-dashboard.css') }}">
+</head>
+<body>
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <img src="static/logo.png" alt="Logo" style="width: 70px; height: 70px;">
+            <h3>Super Admin</h3>
+        </div>
+        <div class="sidebar-menu">
+            <ul class="nav flex-column">
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="dashboard" onclick="showDashboard()">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span class="link-text">Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="companies" onclick="loadCompanies()">
+                        <i class="fas fa-building"></i>
+                        <span class="link-text">Companies</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="users" onclick="loadUsers()">
+                        <i class="fas fa-users"></i>
+                        <span class="link-text">Users</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="reports" onclick="showReports()">
+                        <i class="fas fa-chart-bar"></i>
+                        <span class="link-text">Reports</span>
+                    </a>
+                </li>
+                
+                <!-- <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="restore" onclick="showRestoreMenu()">
+                        <i class="fas fa-trash-restore"></i>
+                        <span class="link-text">Restore</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="add-company" onclick="openCompanyModal()">
+                        <i class="fas fa-plus-circle"></i>
+                        <span class="link-text">Add Company</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="add-user" onclick="openUserModal()">
+                        <i class="fas fa-user-plus"></i>
+                        <span class="link-text">Add User</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="banks" onclick="loadBanks()">
+                        <i class="fas fa-university"></i>
+                        <span class="link-text">Bank Management</span>
+                    </a>
+                </li> -->
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="audit-logs" onclick="loadAuditLogs()">
+                        <i class="fas fa-list-alt"></i>
+                        <span class="link-text">Audit Logs</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-page="settings" onclick="showSettings()">
+                        <i class="fas fa-cog"></i>
+                        <span class="link-text">Settings</span>
+                    </a>
+                </li>
+                <!-- <li class="nav-item">
+                    <a class="nav-link" href="#" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span class="link-text">Logout</span>
+                    </a>
+                </li> -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="content">
+        <!-- Top Navbar -->
+        <nav class="top-navbar navbar navbar-expand navbar-light bg-white">
+            <div class="container-fluid">
+                <button class="btn btn-link d-md-none" type="button" onclick="toggleSidebar()">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="ms-auto d-flex align-items-center">
+                    <div class="dropdown">
+                        <div class="user-info dropdown-toggle" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="cursor: pointer;">
+                            <div class="avatar" id="userInitial">S</div>
+                        </div>
+                        <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="userDropdown">
+                            <li class="dropdown-item-text">
+                                <div class="fw-bold" id="userName">Admin</div>
+                                <small class="text-muted">Super Admin</small>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="logout()">
+                                <i class="fas fa-sign-out-alt me-2"></i>Logout
+                            </a></li>
+                        </ul>
+                    </div>
+                </div>
+                
+            </div>
+        </nav>
+
+        <!-- Dashboard Content -->
+        <div class="container-fluid py-4">
+            <!-- Welcome Section -->
+            <div class="row mb-4 animate-fade">
+                <div class="col-12">
+                    
+                </div>
+            </div>
+
+            <!-- Message Alert -->
+            <div id="message" class="row mb-4" style="display: none;">
+                <div class="col-12">
+                    <div class="alert" id="alertMessage" role="alert">
+                        <!-- Message content will be inserted here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="row mb-4 animate-fade" id="statsCards">
+                <div class="col-md-6 col-lg-3">
+                    <div class="card dashboard-card card-primary text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3 class="card-title mb-1" id="companiesCount">0</h3>
+                                    <p class="card-text mb-0">Active Companies</p>
+                                </div>
+                                <i class="fas fa-building card-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="card dashboard-card card-success text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3 class="card-title mb-1" id="usersCount">0</h3>
+                                    <p class="card-text mb-0">Active Users</p>
+                                </div>
+                                <i class="fas fa-users card-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="card dashboard-card card-warning text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3 class="card-title mb-1" id="inactiveCompaniesCount">0</h3>
+                                    <p class="card-text mb-0">Inactive Companies</p>
+                                </div>
+                                <i class="fas fa-building card-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="card dashboard-card card-danger text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3 class="card-title mb-1" id="inactiveUsersCount">0</h3>
+                                    <p class="card-text mb-0">Inactive Users</p>
+                                </div>
+                                <i class="fas fa-users card-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Section -->
+            <div class="row animate-fade">
+                <div class="col-12">
+                    <div class="card dashboard-card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="card-title mb-0" id="dataTitle">Recent Data</h5>
+                                <div class="dropdown" id="dataFilterDropdown" style="display: none;">
+                                    <!-- <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="fas fa-filter"></i> Filter
+                                    </button> -->
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" onclick="loadCompanies()">Companies</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="loadUsers()">Users</a></li>
+                                    </ul>
+                                </div>
+                                <div id="statusFilter" style="display: none;">
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" class="btn btn-outline-primary active" onclick="filterByStatus('all')">All</button>
+                                        <button type="button" class="btn btn-outline-success" onclick="filterByStatus('active')">Active</button>
+                                        <button type="button" class="btn btn-outline-danger" onclick="filterByStatus('inactive')">Inactive</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- ✅ Added Filters -->
+                            <div id="extraFilters" class="d-flex flex-wrap gap-2 mb-3" style="display: none;">
+                                <select id="companyFilter" class="form-select form-select-sm" style="width: 200px; display: none;">
+                                    <option value="all">Select Company</option>
+                                </select>
+
+                                <select id="roleFilter" class="form-select form-select-sm" style="width: 180px;display: none;">
+                                    <option value="all">Select Role</option>
+                                    <option value="company_admin">Company Admin</option>
+                                    <option value="user">User</option>
+                                </select>
+                            </div>
+
+                            <div id="dataContent">
+                                <p class="text-muted text-center py-4">Select an option from the sidebar or quick actions to view data</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Company Modal -->
+<div class="modal fade" id="companyModal" tabindex="-1" aria-labelledby="companyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="companyModalLabel">Create New Company</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="companyForm" novalidate>
+                <div class="modal-body">
+                    <!-- Basic Information Section -->
+                    <div class="mb-3">
+                        <label for="companyLogo" class="form-label">Company Logo</label>
+                        <input type="file" class="form-control" id="companyLogo" accept="image/jpeg,image/png,image/gif">
+                        <div class="form-text">Max file size: 1MB (JPEG, PNG, GIF)</div>
+                    </div>
+                    <div id="logoPreview" class="mb-3" style="display: none;">
+                        <img id="logoPreviewImg" src="" alt="Logo preview" style="max-width: 200px; max-height: 200px;">
+                    </div>
+                    <h6 class="mb-3 border-bottom pb-2">Basic Information</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="companyName" class="form-label">Company Name *</label>
+                            <input type="text" class="form-control" id="companyName" maxlength="20" required>
+                            <div class="invalid-feedback">Company name must be 1-20 characters (letters and spaces only)</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="companyLegalName" class="form-label">Legal Name</label>
+                            <input type="text" class="form-control" id="companyLegalName" maxlength="20">
+                            <div class="invalid-feedback">Legal name must be up to 20 characters (letters and spaces only)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="registeredAddress" class="form-label">Registered Address</label>
+                            <input type="text" class="form-control" id="registeredAddress" maxlength="70">
+                            <div class="invalid-feedback">Address must be up to 70 characters</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="companyCountry" class="form-label">Country</label>
+                            <select class="form-select" id="companyCountry" onchange="loadStates(this.value)" readonly>
+                                <option value="in" selected>India</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="companyState" class="form-label">State</label>
+                            <select class="form-select" id="companyState">
+                                <option value="">Select State</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="companyCity" class="form-label">City</label>
+                            <input type="text" class="form-control" id="companyCity" maxlength="30">
+                            <div class="invalid-feedback">City name must be up to 30 characters (letters and spaces only)</div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="companyPincode" class="form-label">Pincode</label>
+                            <input type="text" class="form-control" id="companyPincode" maxlength="6">
+                            <div class="invalid-feedback">Pincode must be exactly 6 digits</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Contact Information Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Contact Information</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="companyEmail" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="companyEmail">
+                            <div class="invalid-feedback">Please enter a valid email address</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="companyMobile" class="form-label">Mobile</label>
+                            <input type="text" class="form-control" id="companyMobile" maxlength="10">
+                            <div class="invalid-feedback">Mobile number must be exactly 10 digits</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="companyWebsite" class="form-label">Website</label>
+                            <input type="url" class="form-control" id="companyWebsite">
+                            <div class="invalid-feedback">Please enter a valid website URL</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="companyDomain" class="form-label">Domain</label>
+                            <input type="text" class="form-control" id="companyDomain">
+                            <div class="invalid-feedback">Please enter a valid domain name</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="quotationPrefix" class="form-label">Quotation Prefix</label>
+                            <input type="text" class="form-control" id="quotationPrefix" maxlength="10">
+                            <div class="invalid-feedback">Quotation prefix must be up to 10 characters</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="logoUrl" class="form-label">Logo URL</label>
+                        <input type="url" class="form-control" id="logoUrl">
+                    </div>
+                    
+                    <!-- Compliance Details Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Compliance Details</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="companyGST" class="form-label">GST</label>
+                            <input type="text" class="form-control" id="companyGST" maxlength="15">
+                            <div class="invalid-feedback">GST number must be 15 characters in valid Indian GST format</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bank Details Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Bank Details</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="accountNumber" class="form-label">Account Number</label>
+                            <input type="text" class="form-control" id="accountNumber" maxlength="18">
+                            <div class="invalid-feedback">Account number must be 9-18 digits</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="accountHolderName" class="form-label">Account Holder Name</label>
+                            <input type="text" class="form-control" id="accountHolderName" maxlength="40">
+                            <div class="invalid-feedback">Account holder name must be up to 40 characters (letters and spaces only)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="bankName" class="form-label">Bank Name *</label>
+                            <select class="form-select" id="bankName" required onchange="updateIfscCode(this)">
+                                <option value="">Select Bank</option>
+                                <!-- Banks will be loaded dynamically -->
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="ifscCode" class="form-label">IFSC Code *</label>
+                            <div class="input-group">
+                                <span class="input-group-text" id="ifscPrefix">____</span>
+                                <input type="text" class="form-control" id="ifscSuffix" 
+                                    placeholder="7 characters" maxlength="7" 
+                                    pattern="[A-Z0-9]{7}" title="7 uppercase letters or numbers"
+                                    oninput="this.value = this.value.toUpperCase()">
+                                <input type="hidden" id="ifscCode">
+                            </div>
+                            <small class="form-text text-muted">First 4 characters are bank prefix, enter remaining 7 characters</small>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="bankBranch" class="form-label">Bank Branch</label>
+                            <input type="text" class="form-control" id="bankBranch" maxlength="30">
+                            <div class="invalid-feedback">Bank branch must be up to 30 characters</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="bankAddress" class="form-label">Bank Address</label>
+                            <input type="text" class="form-control" id="bankAddress" maxlength="70">
+                            <div class="invalid-feedback">Bank address must be up to 70 characters</div>
+                        </div>
+                    </div>
+                    
+                    <!-- API Keys Section -->
+                    <h6 class="mb-3 border-bottom pb-2">API Keys (Optional)</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="geminiApiKey" class="form-label">Gemini API Key</label>
+                            <input type="password" class="form-control" id="geminiApiKey" placeholder="Leave blank to use system default">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="llamaApiKey" class="form-label">Llama API Key</label>
+                            <input type="password" class="form-control" id="llamaApiKey" placeholder="Leave blank to use system default">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="geminiModel" class="form-label">Gemini Model</label>
+                            <select class="form-select" id="geminiModel">
+                                <option value="gemini-2.0-flash" selected>Gemini 2.0 Flash</option>
+                                <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash</option>
+                                <option value="gemini-pro">Gemini Pro</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="monthlyPageLimit" class="form-label">Monthly Page Limit</label>
+                            <input type="number" class="form-control" id="monthlyPageLimit" value="1000" min="1" readonly>
+                        </div>
+                    </div>
+                    
+                    <!-- Admin Details Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Company Admin Details</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="companyAdminEmail" class="form-label">Admin Email *</label>
+                            <input type="email" class="form-control" id="companyAdminEmail" placeholder="e.g., admin@company.com" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="companyAdminPassword" class="form-label">Password *</label>
+                            <input type="password" class="form-control" id="companyAdminPassword" placeholder="At least 6 characters" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="companyAdminPasswordConfirm" class="form-label">Confirm Password *</label>
+                            <input type="password" class="form-control" id="companyAdminPasswordConfirm" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Company</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- User Modal -->
+<div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="userModalLabel">Create New User</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="userForm" novalidate>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="userProfilePhoto" class="form-label">Profile Photo</label>
+                        <input type="file" class="form-control" id="userProfilePhoto" accept="image/*">
+                        <div class="form-text">Max file size: 1MB (JPEG, PNG, GIF)</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="newUserName" class="form-label">First Name *</label>
+                        <input type="text" class="form-control" id="newUserName" maxlength="20" required>
+                        <div class="invalid-feedback">First name must be 1-20 characters (letters only)</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newUserMiddle" class="form-label">Middle Name</label>
+                        <input type="text" class="form-control" id="newUserMiddle" maxlength="20">
+                        <div class="invalid-feedback">Middle name must be up to 20 characters (letters only)</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newUserLast" class="form-label">Last Name</label>
+                        <input type="text" class="form-control" id="newUserLast" maxlength="20">
+                        <div class="invalid-feedback">Last name must be up to 20 characters (letters only)</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userGender" class="form-label">Gender</label>
+                        <select class="form-select" id="userGender">
+                            <option value="">Select</option>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userDob" class="form-label">Date of Birth</label>
+                        <input type="date" class="form-control" id="userDob" onchange="calculateAge()">
+                        <div class="invalid-feedback">Date of birth cannot be in the future</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userAge" class="form-label">Age</label>
+                        <input type="number" class="form-control" id="userAge" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userMobile" class="form-label">Mobile</label>
+                        <input type="text" class="form-control" id="userMobile" maxlength="10">
+                        <div class="invalid-feedback">Mobile number must be exactly 10 digits</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userDepartment" class="form-label">Department</label>
+                        <input type="text" class="form-control" id="userDepartment" maxlength="30">
+                        <div class="invalid-feedback">Department must be up to 30 characters</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userDesignation" class="form-label">Designation</label>
+                        <input type="text" class="form-control" id="userDesignation" maxlength="30">
+                        <div class="invalid-feedback">Designation must be up to 30 characters</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userDoj" class="form-label">Date of Joining</label>
+                        <input type="date" class="form-control" id="userDoj">
+                        <div class="invalid-feedback">Date of joining cannot be in the future</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="userEmail" class="form-label">Email *</label>
+                        <input type="email" class="form-control" id="userEmail" required>
+                        <div class="invalid-feedback">Please enter a valid email address</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userPassword" class="form-label">Password *</label>
+                        <input type="password" class="form-control" id="userPassword" minlength="6" required>
+                        <div class="invalid-feedback">Password must be at least 6 characters</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="userCompany" class="form-label">Company *</label>
+                        <select class="form-select" id="userCompany" required>
+                            <option value="">Select Company</option>
+                        </select>
+                        <div class="invalid-feedback">Please select a company</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="submitNewUser()">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+    <!-- Edit Company Modal -->
+<div class="modal fade" id="editCompanyModal" tabindex="-1" aria-labelledby="editCompanyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="editCompanyModalLabel">Edit Company</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="editCompanyForm" novalidate>
+                <input type="hidden" id="editCompanyId">
+                <div class="modal-body">
+                    <!-- Basic Information Section -->
+                    <div class="mb-3">
+                        <label for="editCompanyLogo" class="form-label">Company Logo</label>
+                        <input type="file" class="form-control" id="editCompanyLogo" accept="image/jpeg,image/png,image/gif">
+                        <div class="form-text">Max file size: 1MB (JPEG, PNG, GIF)</div>
+                    </div>
+                    <div id="editLogoPreview" class="mb-3" style="display: none;">
+                        <img id="editLogoPreviewImg" src="" alt="Logo preview" style="max-width: 200px; max-height: 200px;">
+                    </div>
+                    <h6 class="mb-3 border-bottom pb-2">Basic Information</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyName" class="form-label">Company Name</label>
+                            <input type="text" class="form-control" id="editCompanyName" maxlength="20">
+                            <div class="invalid-feedback">Company name must be 1-20 characters (letters and spaces only)</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyLegalName" class="form-label">Legal Name</label>
+                            <input type="text" class="form-control" id="editCompanyLegalName" maxlength="20">
+                            <div class="invalid-feedback">Legal name must be up to 20 characters (letters and spaces only)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editRegisteredAddress" class="form-label">Registered Address</label>
+                            <input type="text" class="form-control" id="editRegisteredAddress" maxlength="70">
+                            <div class="invalid-feedback">Address must be up to 70 characters</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyCountry" class="form-label">Country</label>
+                            <select class="form-select" id="editCompanyCountry" onchange="loadEditStates(this.value)" readonly>
+                                <option value="in" selected>India</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyState" class="form-label">State</label>
+                            <select class="form-select" id="editCompanyState">
+                                <option value="">Select State</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="editCompanyCity" class="form-label">City</label>
+                            <input type="text" class="form-control" id="editCompanyCity" maxlength="30">
+                            <div class="invalid-feedback">City name must be up to 30 characters (letters and spaces only)</div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="editCompanyPincode" class="form-label">Pincode</label>
+                            <input type="text" class="form-control" id="editCompanyPincode" maxlength="6">
+                            <div class="invalid-feedback">Pincode must be exactly 6 digits</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Contact Information Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Contact Information</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyEmail" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="editCompanyEmail">
+                            <div class="invalid-feedback">Please enter a valid email address</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyMobile" class="form-label">Mobile</label>
+                            <input type="text" class="form-control" id="editCompanyMobile" maxlength="10">
+                            <div class="invalid-feedback">Mobile number must be exactly 10 digits</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyWebsite" class="form-label">Website</label>
+                            <input type="url" class="form-control" id="editCompanyWebsite">
+                            <div class="invalid-feedback">Please enter a valid website URL</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editCompanyDomain" class="form-label">Domain</label>
+                            <input type="text" class="form-control" id="editCompanyDomain">
+                            <div class="invalid-feedback">Please enter a valid domain name</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editQuotationPrefix" class="form-label">Quotation Prefix</label>
+                            <input type="text" class="form-control" id="editQuotationPrefix" maxlength="10">
+                            <div class="invalid-feedback">Quotation prefix must be up to 10 characters</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editLogoUrl" class="form-label">Logo URL</label>
+                        <input type="url" class="form-control" id="editLogoUrl">
+                    </div>
+                    
+                    <!-- Compliance Details Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Compliance Details</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label for="editCompanyGST" class="form-label">GST</label>
+                            <input type="text" class="form-control" id="editCompanyGST" maxlength="15">
+                            <div class="invalid-feedback">GST number must be 15 characters in valid Indian GST format</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bank Details Section -->
+                    <h6 class="mb-3 border-bottom pb-2">Bank Details</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editAccountNumber" class="form-label">Account Number</label>
+                            <input type="text" class="form-control" id="editAccountNumber" maxlength="18">
+                            <div class="invalid-feedback">Account number must be 9-18 digits</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editAccountHolderName" class="form-label">Account Holder Name</label>
+                            <input type="text" class="form-control" id="editAccountHolderName" maxlength="40">
+                            <div class="invalid-feedback">Account holder name must be up to 40 characters (letters and spaces only)</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editBankName" class="form-label">Bank Name</label>
+                            <select class="form-select" id="editBankName" onchange="updateEditIfscCode(this)">
+                                <option value="">Select Bank</option>
+                                <!-- Banks will be loaded dynamically -->
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editIfscCode" class="form-label">IFSC Code</label>
+                            <div class="input-group">
+                                <span class="input-group-text" id="editIfscPrefixDisplay">____</span>
+                                <input type="text" class="form-control" id="editIfscSuffix" 
+                                    placeholder="7 characters" maxlength="7" 
+                                    pattern="[A-Z0-9]{7}" title="7 uppercase letters or numbers"
+                                    oninput="this.value = this.value.toUpperCase()">
+                                <input type="hidden" id="editIfscCode">
+                            </div>
+                            <small class="form-text text-muted">First 4 characters are bank prefix, enter remaining 7 characters</small>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editBankBranch" class="form-label">Bank Branch</label>
+                            <input type="text" class="form-control" id="editBankBranch" maxlength="30">
+                            <div class="invalid-feedback">Bank branch must be up to 30 characters</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editBankAddress" class="form-label">Bank Address</label>
+                            <input type="text" class="form-control" id="editBankAddress" maxlength="70">
+                            <div class="invalid-feedback">Bank address must be up to 70 characters</div>
+                        </div>
+                    </div>
+                    
+                    <!-- API Keys Section -->
+                    <h6 class="mb-3 border-bottom pb-2">API Keys Management</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="editGeminiApiKey" class="form-label">Gemini API Key</label>
+                            <input type="password" class="form-control" id="editGeminiApiKey" placeholder="Leave blank to keep current">
+                            <div class="form-text">Leave blank to keep current key</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editLlamaApiKey" class="form-label">Llama API Key</label>
+                            <input type="password" class="form-control" id="editLlamaApiKey" placeholder="Leave blank to keep current">
+                            <div class="form-text">Leave blank to keep current key</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editGeminiModel" class="form-label">Gemini Model</label>
+                            <select class="form-select" id="editGeminiModel">
+                                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash</option>
+                                <option value="gemini-pro">Gemini Pro</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="editMonthlyPageLimit" class="form-label">Monthly Page Limit</label>
+                            <input type="number" class="form-control" id="editMonthlyPageLimit" min="1">
+                        </div>
+                    </div>
+                    
+                    <!-- API Key Actions -->
+                    <div class="mb-3">
+                        <label class="form-label">API Key Actions</label>
+                        <div>
+                            <button type="button" class="btn btn-sm btn-outline-info me-2" onclick="viewApiKeys()">
+                                <i class="fas fa-eye"></i> View API Keys Status
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearApiKeys()">
+                                <i class="fas fa-trash"></i> Clear API Keys
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-info">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+  <!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1" aria-labelledby="editUserModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-white">
+                <h5 class="modal-title" id="editUserModalLabel">Edit User</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="editUserForm" novalidate>
+                <input type="hidden" id="editUserId">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="editUserName" class="form-label">Full Name</label>
+                        <input type="text" class="form-control" id="editUserName" maxlength="50">
+                        <div class="invalid-feedback">Full name must be up to 50 characters (letters and spaces only)</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editUserEmail" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="editUserEmail">
+                        <div class="invalid-feedback">Please enter a valid email address</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editUserPassword" class="form-label">Password (leave blank to keep)</label>
+                        <input type="password" class="form-control" id="editUserPassword" minlength="6">
+                        <div class="invalid-feedback">Password must be at least 6 characters</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editUserRole" class="form-label">Role</label>
+                        <select class="form-select" id="editUserRole">
+                            <option value="">Choose One</option>
+                            <option value="company_admin">Company Admin</option>
+                            <option value="user">Regular User</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editUserCompany" class="form-label">Company</label>
+                        <select class="form-select" id="editUserCompany">
+                            <option value="">Choose One</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+
+
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+    <!-- DataTables Buttons -->
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
+    <!-- For Excel export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <div id="dataContent"></div>
+    <script src="{{ url_for('static', path='/js/super-admin-dashboard.js') }}"></script>
+</body>
+</html>

@@ -1,11 +1,14 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
+from datetime import datetime, date
 import bcrypt
 import os
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, List, Any, Dict
 import uuid
 from datetime import datetime, timedelta
 import smtplib, ssl
@@ -13,19 +16,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pymongo import MongoClient
 from pymongo.collection import ReturnDocument
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
 import json
-import os
 import tempfile
-from fastapi.responses import JSONResponse, StreamingResponse
 from io import BytesIO
-
-from dotenv import load_dotenv
 
 from llama.llama_utils import initialize_llama_parser
 from parsing.parsing_utils import parse_resume
@@ -38,9 +31,58 @@ from mongodb.mongodb_db import (
     fetch_jd_names_for_client,
     store_results_in_mongodb,
     update_job_description,
+    count_pages,
+    initialize_usage_tracking,
+    increment_usage,
+    get_current_month_usage,
+    check_usage_limit,
+    get_company_page_limit,
+    get_usage_stats,
+    log_audit_trail
 )
+from utils.common_utils import to_init_caps
+
+import google.generativeai as genai
+from llama_parse import LlamaParse
 
 load_dotenv()
+# JWT Token
+from jose import jwt, JWTError
+from datetime import datetime, timedelta
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+ACCESS_SECRET_KEY  = os.getenv("JWT_SECRET_KEY", "secret123")
+REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY", "refresh123")
+ALGORITHM          = "HS256"
+ACCESS_EXPIRE_MIN = 60 * 4     # Access token valid for 4 hours
+REFRESH_EXPIRE_DAYS = 7      # Refresh token valid for 7 days
+
+security = HTTPBearer()
+def create_token(data: dict, expires_delta: timedelta, secret: str):
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.utcnow() + expires_delta})
+    return jwt.encode(to_encode, secret, algorithm=ALGORITHM)
+
+def create_access_token(data: dict):
+    return create_token(data, timedelta(minutes=ACCESS_EXPIRE_MIN), ACCESS_SECRET_KEY)
+
+def create_refresh_token(data: dict):
+    return create_token(data, timedelta(days=REFRESH_EXPIRE_DAYS), REFRESH_SECRET_KEY)
+
+def verify_access_token(token: str):
+    try:
+        return jwt.decode(token, ACCESS_SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+
+def verify_refresh_token(token: str):
+    try:
+        return jwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+
 
 # --------------------
 # Environment / Clients
@@ -53,6 +95,8 @@ col_super_admins = db["super_admins"]
 col_companies = db["companies"]
 col_company_users = db["company_users"]
 col_password_resets = db["password_resets"]
+col_banks = db["banks"]
+audit_collection = db["audit_logs"]
 
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT")) if os.getenv("SMTP_PORT") else None
@@ -83,36 +127,140 @@ class LoginRequest(BaseModel):
 
 class CompanyCreate(BaseModel):
     name: str
-    description: str
-    address: str
     admin_email: str
     admin_password: str
+    gemini_api_key: Optional[str] = None
+    llama_api_key: Optional[str] = None
+    gemini_model: Optional[str] = "gemini-2.0-flash"
+    monthly_page_limit: Optional[int] = Field(default=1000, description="Monthly page limit for analysis")
+    # New fields
+    logo_url: Optional[str] = None
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    website: Optional[str] = None
+    domain: Optional[str] = None
+    legal_name: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    quotation_prefix: Optional[str] = None
+    registered_address: Optional[str] = None
+    
+    # Compliance details
+    gst: Optional[str] = None
+    
+    # Bank details
+    account_number: Optional[str] = None
+    account_holder_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_address: Optional[str] = None
 
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None
-    description: Optional[str] = None
-    address: Optional[str] = None
+    status: Optional[str] = None  # 'active' or 'inactive'
+    gemini_api_key: Optional[str] = None
+    llama_api_key: Optional[str] = None
+    gemini_model: Optional[str] = None
+    monthly_page_limit: Optional[int] = None
+    # New fields
+    logo_url: Optional[str] = None
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    website: Optional[str] = None
+    domain: Optional[str] = None
+    legal_name: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    quotation_prefix: Optional[str] = None
+    registered_address: Optional[str] = None
+    
+    # Compliance details
+    gst: Optional[str] = None
+    
+    # Bank details
+    account_number: Optional[str] = None
+    account_holder_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_address: Optional[str] = None
 
 class UserCreate(BaseModel):
     email: str
     password: str
     name: str
-    role: Optional[str] = None  # ignored; always 'user'
+    middle_name: Optional[str] = None
+    last_name: Optional[str] = None
+    gender: Optional[str] = None       # 'male' | 'female' | 'other'
+    dob: Optional[date] = None
+    age: Optional[int] = None
+    mobile: Optional[str] = None
+    department: Optional[str] = None
+    designation: Optional[str] = None
+    date_of_joining: Optional[date] = None
+    role: Optional[str] = None         # ignored; always 'user'
     company_id: str
+    status: Optional[str] = 'active'
+    profile_photo_url: Optional[str] = None
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
     name: Optional[str] = None
+    middle_name: Optional[str] = None
+    last_name: Optional[str] = None
+    gender: Optional[str] = None
+    dob: Optional[date] = None
+    age: Optional[int] = None
+    mobile: Optional[str] = None
+    department: Optional[str] = None
+    designation: Optional[str] = None
+    date_of_joining: Optional[date] = None
     role: Optional[str] = None
     company_id: Optional[str] = None
+    status: Optional[str] = None
+    profile_photo_url: Optional[str] = None
+
+class UserStatusUpdate(BaseModel):
+    status: str
+    reason: str
 
 class CompanyResponse(BaseModel):
     id: str
     name: str
-    description: Optional[str]
-    address: Optional[str]
+    status: str
+    monthly_page_limit: int
+    current_month_usage: int
     created_at: str
+    # New fields
+    logo_url: Optional[str] = None
+    email: Optional[str] = None
+    mobile: Optional[str] = None
+    website: Optional[str] = None
+    domain: Optional[str] = None
+    legal_name: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    quotation_prefix: Optional[str] = None
+    registered_address: Optional[str] = None
+    
+    # Compliance details
+    gst: Optional[str] = None
+    
+    # Bank details
+    account_number: Optional[str] = None
+    account_holder_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_address: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -120,6 +268,7 @@ class UserResponse(BaseModel):
     name: str
     role: str
     company_id: str
+    status: str
     created_at: str
 
 class PasswordResetRequest(BaseModel):
@@ -137,29 +286,157 @@ class JDData(BaseModel):
     max_experience: Optional[int] = None
     primary_skills: List[str] = Field(default_factory=list)
     secondary_skills: List[str] = Field(default_factory=list)
-
+    # New fields (not sent to Gemini)
+    location: Optional[str] = None
+    budget: Optional[str] = None
+    number_of_positions: Optional[int] = None
+    work_mode: Optional[str] = Field(None, description="in-office, remote, hybrid")
 
 class UpdateJD(BaseModel):
     required_experience: str
     primary_skills: List[str]
     secondary_skills: List[str] = []
+    # New fields
+    location: Optional[str] = None
+    budget: Optional[str] = None
+    number_of_positions: Optional[int] = None
+    work_mode: Optional[str] = None
+
+class BulkStatusUpdate(BaseModel):
+    ids: List[str]
+    status: str
+
+# Update your BankCreate and BankUpdate models
+class BankCreate(BaseModel):
+    bank_name: str
+    short_name: str
+    ifsc_prefix: str
+    status: str = "active"
+
+class BankUpdate(BaseModel):
+    bank_name: Optional[str] = None
+    short_name: Optional[str] = None
+    ifsc_prefix: Optional[str] = None
+    status: Optional[str] = None
+
+class BankResponse(BaseModel):
+    id: str
+    bank_name: str
+    short_name: str
+    ifsc_prefix: str
+    status: str
+    created_at: str
+    updated_at: Optional[str] = None
 
 
+
+# --------------------
+# Helper Functions
+# --------------------
 def _ensure_env_loaded():
     # Load .env from current working directory (project root)
     load_dotenv()
-# --------------------
-# Auth guard (header role)
-# --------------------
 
-def require_super_admin(x_user_role: Optional[str] = Header(default=None)) -> str:
-    if x_user_role != "super_admin":
+# def get_current_user(request: Request, 
+#                    x_user_role: Optional[str] = Header(default=None), 
+#                    x_user_id: Optional[str] = Header(default=None),
+#                    x_company_id: Optional[str] = Header(default=None)):
+    
+#     # Debug logging to identify header issues
+#     print(f"Auth headers - Role: {x_user_role}, User ID: {x_user_id}, Company ID: {x_company_id}")
+    
+#     if not x_user_role or not x_user_id:
+#         # Check for alternative header names that might be sent from frontend
+#         alternative_user_id = request.headers.get('X-User-ID') or request.headers.get('X-UserId') or request.headers.get('User-Id')
+#         alternative_role = request.headers.get('X-User-Role') or request.headers.get('User-Role')
+        
+#         if alternative_user_id and alternative_role:
+#             x_user_id = alternative_user_id
+#             x_user_role = alternative_role
+#             x_company_id = x_company_id or request.headers.get('X-Company-Id') or request.headers.get('Company-Id')
+#         else:
+#             raise HTTPException(status_code=401, detail="Not authenticated")
+    
+#     return {
+#         "role": x_user_role,
+#         "id": x_user_id,
+#         "company_id": x_company_id
+#     }
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends
+
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    payload = verify_access_token(token)
+    return payload
+
+
+def get_current_user1(request: Request, 
+                   x_user_role: Optional[str] = Header(default=None), 
+                   x_user_id: Optional[str] = Header(default=None),
+                   x_company_id: Optional[str] = Header(default=None)):
+    
+    # Debug logging to identify header issues
+    print(f"Auth headers - Role: {x_user_role}, User ID: {x_user_id}, Company ID: {x_company_id}")
+    
+    if not x_user_role or not x_user_id:
+        # Check for alternative header names that might be sent from frontend
+        alternative_user_id = request.headers.get('X-User-ID') or request.headers.get('X-UserId') or request.headers.get('User-Id')
+        alternative_role = request.headers.get('X-User-Role') or request.headers.get('User-Role')
+        
+        if alternative_user_id and alternative_role:
+            x_user_id = alternative_user_id
+            x_user_role = alternative_role
+            x_company_id = x_company_id or request.headers.get('X-Company-Id') or request.headers.get('Company-Id')
+        else:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {
+        "role": x_user_role,
+        "id": x_user_id,
+        "company_id": x_company_id
+    }
+
+@app.get("/me")
+def read_me(user: dict = Depends(get_current_user)):
+    return {"message": "Protected content", "user": user}
+
+
+# def require_super_admin(x_user_role: Optional[str] = Header(default=None)) -> str:
+#     if x_user_role != "super_admin":
+#         raise HTTPException(status_code=403, detail="Super admin privilege required")
+#     return x_user_role
+
+# def require_company_admin_or_super_admin(
+#     x_user_role: Optional[str] = Header(default=None),
+#     x_company_id: Optional[str] = Header(default=None),
+#     x_user_id: Optional[str] = Header(default=None)  # 👈 get admin's user ID
+# ) -> dict:
+#     if x_user_role not in ["super_admin", "company_admin"]:
+#         raise HTTPException(status_code=403, detail="Admin privilege required")
+    
+#     return {
+#         "role": x_user_role,
+#         "company_id": x_company_id,
+#         "user_id": x_user_id   # 👈 store user ID
+#     }
+def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """
+    ✅ Allow only Super Admins
+    """
+    if current_user.get("role") != "super_admin":
         raise HTTPException(status_code=403, detail="Super admin privilege required")
-    return x_user_role
+    return current_user  # Returns entire user payload (user_id, role, company_id, etc.)
 
-# --------------------
-# SMTP helper
-# --------------------
+def require_company_admin_or_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """
+    ✅ Allow Company Admin OR Super Admin
+    """
+    if current_user.get("role") not in ["super_admin", "company_admin"]:
+        raise HTTPException(status_code=403, detail="Admin privilege required")
+    return current_user  # Returns entire user payload
 
 def send_reset_email(to_email: str, token: str):
     if not (SMTP_HOST and SMTP_PORT and SMTP_FROM):
@@ -218,211 +495,592 @@ def send_reset_email(to_email: str, token: str):
     except Exception as e:
         raise RuntimeError(f"Failed to send email: {str(e)}")
 
-# --------------------
-# Auth
-# --------------------
-@app.post("/login")
-
-def login(data: LoginRequest):
-    # Super admin
-    sa = col_super_admins.find_one({"email": data.email})
-    if sa and bcrypt.checkpw(data.password.encode("utf-8"), sa["password"].encode("utf-8")):
-        return {
-            "message": "Login successful",
-            "role": "super_admin",
-            "name": sa.get("name"),
-            "user_id": sa.get("id", str(uuid.uuid4())),
-            "email": sa.get("email"),
-            "token": str(uuid.uuid4())
-        }
-
-    # Company users
-    cu = col_company_users.find_one({"email": data.email})
-    if cu and bcrypt.checkpw(data.password.encode("utf-8"), cu["password"].encode("utf-8")):
-        return {
-            "message": "Login successful",
-            "role": cu.get("role"),
-            "name": cu.get("name"),
-            "user_id": cu.get("id", str(uuid.uuid4())),
-            "email": cu.get("email"),
-            "company_id": cu.get("company_id"),
-            "created_at": cu.get("created_at"),
-            "token": str(uuid.uuid4())
-        }
-
-    raise HTTPException(status_code=401, detail="Invalid email or password")
-
-# --------------------
-# Companies
-# --------------------
-@app.post("/companies", response_model=CompanyResponse)
-
-def create_company(company: CompanyCreate, _: str = Depends(require_super_admin)):
-    # Duplicate checks
-    if col_companies.find_one({"name": company.name}):
-        raise HTTPException(status_code=400, detail="Company name already exists")
-    if col_company_users.find_one({"email": company.admin_email}):
-        raise HTTPException(status_code=400, detail="Admin email already exists")
-
-    now_iso = datetime.now().isoformat()
-    company_id = str(uuid.uuid4())
-    company_doc = {
-        "_id": company_id,
-        "id": company_id,
-        "name": company.name,
-        "description": company.description,
-        "address": company.address,
-        "created_at": now_iso
-    }
-    col_companies.insert_one(company_doc)
-
-    # Initial company admin
-    admin_id = str(uuid.uuid4())
-    admin_doc = {
-        "_id": admin_id,
-        "id": admin_id,
-        "email": company.admin_email,
-        "password": bcrypt.hashpw(company.admin_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
-        "name": company.name,
-        "role": "company_admin",
-        "company_id": company_id,
-        "created_at": now_iso
-    }
-    try:
-        col_company_users.insert_one(admin_doc)
-    except Exception as e:
-        # Keep company, but surface in logs
-        print("Failed to create company admin:", str(e))
-
-    return CompanyResponse(**company_doc)
-
-@app.get("/companies")
-
-def get_companies():
-    items = []
-    for doc in col_companies.find({}, {"_id": 0}):
-        items.append(doc)
-    return items
-
-@app.patch("/companies/{company_id}", response_model=CompanyResponse)
-
-def update_company(company_id: str, company: CompanyUpdate, _: str = Depends(require_super_admin)):
-    update_data = {k: v for k, v in company.dict(exclude_unset=True).items() if v is not None}
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    updated = col_companies.find_one_and_update(
-        {"id": company_id},
-        {"$set": update_data},
-        return_document=ReturnDocument.AFTER,
-        projection={"_id": 0}
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return CompanyResponse(**updated)
-
-@app.delete("/companies/{company_id}")
-
-def delete_company(company_id: str, _: str = Depends(require_super_admin)):
-    # Prevent delete if users still exist in company
-    if col_company_users.count_documents({"company_id": company_id}) > 0:
-        raise HTTPException(status_code=400, detail="First remove this company's users, then delete the company.")
-    res = col_companies.delete_one({"id": company_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return {"message": "Company deleted"}
-
-# --------------------
-# Users
-# --------------------
-@app.post("/users", response_model=UserResponse)
-
-def create_user(user: UserCreate, _: str = Depends(require_super_admin)):
-    try:
-        now_iso = datetime.now().isoformat()
-        user_id = str(uuid.uuid4())
-        user_doc = {
-            "_id": user_id,
-            "id": user_id,
-            "email": user.email,
-            "password": bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
-            "name": user.name,
-            "role": "user",
-            "company_id": user.company_id,
-            "created_at": now_iso
-        }
-        col_company_users.insert_one(user_doc)
-        return UserResponse(**{k: v for k, v in user_doc.items() if k != "_id"})
-    except Exception as e:
-        print("Error in create_user:", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.patch("/users/{user_id}", response_model=UserResponse)
-
-def update_user(user_id: str, user: UserUpdate, _: str = Depends(require_super_admin)):
-    update_data = {k: v for k, v in user.dict(exclude_unset=True).items() if v is not None}
-    if "password" in update_data:
-        update_data["password"] = bcrypt.hashpw(update_data["password"].encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    updated = col_company_users.find_one_and_update(
-        {"id": user_id},
-        {"$set": update_data},
-        return_document=ReturnDocument.AFTER
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="User not found")
-    updated.pop("_id", None)
-    return UserResponse(**updated)
-
-@app.delete("/users/{user_id}")
-
-def delete_user(user_id: str, _: str = Depends(require_super_admin)):
-    res = col_company_users.delete_one({"id": user_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"message": "User deleted"}
-
-@app.get("/users")
-
-def get_users(company_id: Optional[str] = None):
-    query = {}
-    if company_id:
-        query["company_id"] = company_id
-    items = []
-    for doc in col_company_users.find(query, {"_id": 0}):
-        items.append(doc)
-    return items
-
-# --------------------
-# Dashboard
-# --------------------
-@app.get("/dashboard")
-
-def get_dashboard_data():
-    companies_count = col_companies.count_documents({})
-    users_count = col_company_users.count_documents({})
-    return {
-        "companies_count": companies_count,
-        "users_count": users_count
-    }
-
-# --------------------
-# Password reset
-# --------------------
-
 def _find_user_by_email(email: str):
     sa = col_super_admins.find_one({"email": email})
     if sa:
         return ("super_admins", sa)
-    cu = col_company_users.find_one({"email": email})
+    cu = col_company_users.find_one({"email": email, "is_deleted": False})
     if cu:
         return ("company_users", cu)
     return (None, None)
 
-@app.post("/password-reset/request")
+def soft_delete_company(company_id: str, deleted_by: str) -> bool:
+    """
+    Soft delete a company and all its associated users
+    """
+    try:
+        # Soft delete the company
+        company_result = col_companies.update_one(
+            {"id": company_id},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "status": "inactive",  # Set status to inactive when deleting
+                    "deleted_at": datetime.now().isoformat(),
+                    "deleted_by": deleted_by
+                }
+            }
+        )
+        
+        if company_result.modified_count == 0:
+            return False
+            
+        # Soft delete all users for this company
+        col_company_users.update_many(
+            {"company_id": company_id},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "status": "inactive",  # Set status to inactive when deleting
+                    "deleted_at": datetime.now().isoformat(),
+                    "deleted_by": deleted_by
+                }
+            }
+        )
+        
+        return True
+    except Exception as e:
+        print(f"Failed to soft delete company: {e}")
+        return False
 
+def soft_delete_company_user(user_id: str, deleted_by: str) -> bool:
+    """
+    Soft delete a company user
+    """
+    try:
+        result = col_company_users.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "status": "inactive",  # Set status to inactive when deleting
+                    "deleted_at": datetime.now().isoformat(),
+                    "deleted_by": deleted_by
+                }
+            }
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Failed to soft delete user: {e}")
+        return False
+
+# def restore_company(company_id: str, restored_by: str) -> bool:
+#     """
+#     Restore a soft-deleted company
+#     """
+#     try:
+#         result = col_companies.update_one(
+#             {"id": company_id, "is_deleted": True},
+#             {
+#                 "$set": {
+#                     "is_deleted": False,
+#                     "status": "active",  # Set status to active when restoring
+#                     "restored_at": datetime.now().isoformat(),
+#                     "restored_by": restored_by
+#                 },
+#                 "$unset": {
+#                     "deleted_at": "",
+#                     "deleted_by": ""
+#                 }
+#             }
+#         )
+#         return result.modified_count > 0
+#     except Exception as e:
+#         print(f"Failed to restore company: {e}")
+#         return False
+
+def restore_company_user(user_id: str, restored_by: str) -> bool:
+    """
+    Restore a soft-deleted company user
+    """
+    try:
+        result = col_company_users.update_one(
+            {"id": user_id, "is_deleted": True},
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "status": "active",  # Set status to active when restoring
+                    "restored_at": datetime.now().isoformat(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Failed to restore user: {e}")
+        return False
+def restore_company_and_users(company_id: str, restored_by: str) -> bool:
+    """
+    Restore a soft-deleted company and all its soft-deleted users.
+    """
+    try:
+        # Restore the company
+        company_result = col_companies.update_one(
+            {"id": company_id, "is_deleted": True},
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "status": "active",
+                    "restored_at": datetime.now().isoformat(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+
+        # Restore all users of this company
+        users_result = col_company_users.update_many(
+            {"company_id": company_id, "is_deleted": True},
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "status": "active",
+                    "restored_at": datetime.now().isoformat(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+
+        return company_result.modified_count > 0
+    except Exception as e:
+        print(f"Failed to restore company or users: {e}")
+        return False
+
+
+def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> bool:
+    """
+    Restore a soft-deleted analysis
+    """
+    try:
+        result = db.analysis_history.update_one(
+            {
+                "analysis_id": analysis_id,
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Failed to restore analysis: {e}")
+        return False
+
+def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
+    """
+    Restore a soft-deleted client and its associated JDs and analyses
+    """
+    try:
+        # Restore the client
+        client_result = db.clients.update_one(
+            {
+                "client_name": to_init_caps(client_name),
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        if client_result.modified_count == 0:
+            return False
+            
+        # Get client ID
+        client_doc = db.clients.find_one({
+            "client_name": to_init_caps(client_name),
+            "company_id": company_id
+        })
+        
+        if not client_doc:
+            return False
+            
+        client_id = client_doc["_id"]
+        
+        # Restore all JDs for this client
+        db.job_descriptions.update_many(
+            {
+                "client_id": client_id,
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        # Restore all analyses for this client
+        db.analysis_history.update_many(
+            {
+                "client_id": client_id,
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        return True
+    except Exception as e:
+        print(f"Failed to restore client: {e}")
+        return False
+
+def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: str) -> bool:
+    """
+    Restore a soft-deleted job description and its associated analyses
+    """
+    try:
+        # Get client ID
+        client_doc = db.clients.find_one({
+            "client_name": to_init_caps(client_name),
+            "company_id": company_id
+        })
+        
+        if not client_doc:
+            return False
+            
+        client_id = client_doc["_id"]
+        
+        # Restore the JD
+        jd_result = db.job_descriptions.update_one(
+            {
+                "client_id": client_id,
+                "jd_title": to_init_caps(jd_title),
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        if jd_result.modified_count == 0:
+            return False
+            
+        # Restore all analyses for this JD
+        db.analysis_history.update_many(
+            {
+                "jd_id": client_id,
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        return True
+    except Exception as e:
+        print(f"Failed to restore JD: {e}")
+        return False
+
+from datetime import datetime
+from pymongo import UpdateOne
+
+def auto_reset_monthly_usage():
+    """Create new usage records for the new month without overwriting old ones."""
+    current_month = datetime.now().strftime("%Y-%m")
+
+    # Check if reset already done for this month
+    last_reset = db.system_settings.find_one({"key": "last_usage_reset"})
+    if last_reset and last_reset.get("value") == current_month:
+        return  # Already reset this month
+
+    # Get all active companies
+    companies = db.companies.find({}, {"_id": 1})
+
+    # Prepare bulk operations
+    operations = []
+    for company in companies:
+        company_id = str(company["_id"])
+        # Check if this month's usage record already exists
+        exists = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+        if not exists:
+            operations.append(
+                UpdateOne(
+                    {"company_id": company_id, "month": current_month},
+                    {
+                        "$setOnInsert": {
+                            "page_count": 0,
+                            "last_updated": datetime.now()
+                        }
+                    },
+                    upsert=True
+                )
+            )
+
+    # Execute all new-month inserts
+    if operations:
+        db.company_usage.bulk_write(operations)
+
+    # Update last reset marker
+    db.system_settings.update_one(
+        {"key": "last_usage_reset"},
+        {"$set": {"value": current_month, "updated_at": datetime.now()}},
+        upsert=True
+    )
+
+
+def send_usage_notification_email(company_id: str, usage_percentage: float):
+    """Send email notification for high usage"""
+    company = col_companies.find_one({"id": company_id}, {"name": 1, "admin_email": 1})
+    if not company:
+        return
+    
+    subject = f"Usage Alert: {company['name']} - {usage_percentage:.1f}% Page Limit Used"
+    message = f"""
+    Dear Administrator,
+    
+    Your company {company['name']} has used {usage_percentage:.1f}% of its monthly page limit.
+    
+    Please contact support if you need to increase your limit.
+    
+    Best regards,
+    TalentHive Team
+    """
+    
+    # Implement email sending logic here
+    print(f"Would send email to {company.get('admin_email')}: {subject}")
+#-----------
+#logs
+#-----------
+
+@app.get("/companies/list", response_class=JSONResponse)
+def get_companies_list(current_user: dict = Depends(require_super_admin)):
+    companies = list(col_companies.find({}, {"_id": 1, "name": 1}))
+    result = [{"company_id": None, "company_name": "Super Admin"}]  # include Super Admin
+    for c in companies:
+        result.append({
+            "company_id": str(c["_id"]),
+            "company_name": c.get("name", "Unnamed Company")
+        })
+    return {"companies": result}
+
+
+# Endpoint to fetch all audit logs (for super admin dashboard)
+from fastapi import Query
+
+from fastapi import Query
+
+@app.get("/audit-logs", response_class=JSONResponse)
+def get_audit_logs(
+    current_user: dict = Depends(require_super_admin),
+    company_id: str = Query(None)
+):
+    # 🔹 Actions to exclude
+    exclude_actions = [
+        "upload_company_logo",
+        "create_company",
+        "update_company_limit",
+        "upload_user_profile_photo",
+        "create_user",
+        "restore_user",
+        "restore_company_with_user",
+        "analyze_resume",
+        "restore_analysis",
+        "restore_client",
+        "restore_jd",
+        "update_client",
+        "update_client_status",
+        "reset_company_usage",
+        "create_bank",
+        "update_bank",
+        "update_bank_status",
+        "delete_bank"
+    ]
+
+    # 🔹 Base query
+    query = {}
+
+    # 🔹 Filter by company
+    if company_id:
+        if company_id.lower() == "none":
+            query["company_id"] = None
+        else:
+            query["company_id"] = company_id
+
+    # 🔹 Exclude unwanted actions
+    query["action"] = {"$nin": exclude_actions}
+
+    logs = list(audit_collection.find(query, {"_id": 0}).sort("timestamp", -1))
+    
+    # 🔹 Convert timestamp to ISO
+    for log in logs:
+        if isinstance(log.get("timestamp"), datetime):
+            log["timestamp"] = log["timestamp"].isoformat()
+    
+    return {"logs": logs}
+
+@app.get("/audit-logs/company", response_class=JSONResponse)
+def get_company_audit_logs(
+    current_user: dict = Depends(require_company_admin_or_super_admin)  # 👈 Your role-based dependency
+):
+    company_id = current_user.get("company_id")
+    if not company_id:
+        return {"logs": [], "message": "No company ID found for this user."}
+
+    # 🔹 Actions to exclude (same list as before)
+    exclude_actions = [
+        "upload_company_logo",
+        "create_company",
+        "update_company_limit",
+        "upload_user_profile_photo",
+        "create_user",
+        "restore_user",
+        "restore_company_with_user",
+        "analyze_resume",
+        "restore_analysis",
+        "restore_client",
+        "restore_jd",
+        "update_client",
+        "update_client_status",
+        "reset_company_usage",
+        "create_bank",
+        "update_bank",
+        "update_bank_status",
+        "delete_bank"
+    ]
+
+    # 🔹 Build query for this company
+    query = {
+        "company_id": company_id,
+        "action": {"$nin": exclude_actions}
+    }
+
+    logs = list(audit_collection.find(query, {"_id": 0}).sort("timestamp", -1))
+    
+    # 🔹 Convert timestamp → ISO
+    for log in logs:
+        if isinstance(log.get("timestamp"), datetime):
+            log["timestamp"] = log["timestamp"].isoformat()
+    
+    return {"logs": logs}
+
+
+
+# --------------------
+# Auth Routes
+# --------------------
+
+@app.post("/login")
+def login(data: LoginRequest, request: Request):
+    # Super admin
+    sa = col_super_admins.find_one({"email": data.email})
+    if sa and bcrypt.checkpw(data.password.encode(), sa["password"].encode()):
+        payload = {
+            "user_id": str(sa.get("id", uuid.uuid4())), 
+            "role": "super_admin",
+            "name": sa.get("name"),  # ✅ Add name to JWT payload
+            "email": sa.get("email")
+        }
+        return {
+            "message": "Login successful",
+            "role": "super_admin",
+            "name": sa.get("name"),
+            "user_id": payload["user_id"],
+            "email": sa.get("email"),
+            "access_token": create_access_token(payload),
+            "refresh_token": create_refresh_token(payload)
+        }
+
+    # Company user
+    cu = col_company_users.find_one({"email": data.email, "is_deleted": False, "status": "active"})
+    if cu and bcrypt.checkpw(data.password.encode(), cu["password"].encode()):
+        payload = {
+            "user_id": str(cu.get("id", uuid.uuid4())),
+            "role": cu.get("role"),
+            "company_id": cu.get("company_id"),
+            "name": cu.get("name"),  # ✅ Add name to JWT payload
+            "email": cu.get("email")
+        }
+        return {
+            "message": "Login successful",
+            "role": cu.get("role"),
+            "name": cu.get("name"),
+            "user_id": payload["user_id"],
+            "email": cu.get("email"),
+            "company_id": cu.get("company_id"),
+            "access_token": create_access_token(payload),
+            "refresh_token": create_refresh_token(payload)
+        }
+    raise HTTPException(status_code=401, detail="Invalid email or password or account is inactive")
+
+@app.post("/refresh")
+def refresh_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    refresh_token = credentials.credentials
+    payload = verify_refresh_token(refresh_token)
+
+    # Issue a new access token (don't extend refresh)
+    new_access = create_access_token({
+        "user_id": payload["user_id"],
+        "role": payload["role"],
+        "company_id": payload.get("company_id"),
+        "name": payload.get("name")
+    })
+    return {"access_token": new_access}
+
+@app.post("/password-reset/request")
 def password_reset_request(data: PasswordResetRequest):
     if not data.email or not data.new_password:
         raise HTTPException(status_code=400, detail="Email and new password are required")
@@ -463,7 +1121,6 @@ def password_reset_request(data: PasswordResetRequest):
     return {"message": "Password reset email sent"}
 
 @app.post("/password-reset/confirm/{token}", response_model=dict)
-
 def password_reset_confirm(token: str):
     if not token:
         raise HTTPException(status_code=400, detail="Token is required")
@@ -496,7 +1153,6 @@ def password_reset_confirm(token: str):
     return {"message": "Password reset successful"}
 
 @app.get("/password-reset/confirm/{token}", response_class=HTMLResponse)
-
 def password_reset_confirm_get(token: str):
     row = col_password_resets.find_one({"token": token})
     if not row:
@@ -525,62 +1181,1203 @@ def password_reset_confirm_get(token: str):
     col_password_resets.delete_one({"id": row.get("id")})
     return HTMLResponse("<h3>Password reset successful. You may close this window and log in.</h3>")
 
+# --------------------
+# Company Routes
+# --------------------
+app.mount("/logos", StaticFiles(directory="logos"), name="logos")
+
+@app.post("/companies/{company_id}/logo")
+def upload_company_logo(
+    company_id: str,
+    logo: UploadFile = File(...),
+    user: dict = Depends(require_company_admin_or_super_admin)
+):
+    # Validate file type
+    if logo.content_type not in ["image/jpeg", "image/png", "image/gif"]:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG and GIF images are allowed")
+
+    # Check file size (1MB max)
+    contents = logo.file.read()
+    if len(contents) > 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size must be less than 1MB")
+
+    # Generate unique filename
+    file_extension = logo.filename.split(".")[-1] if "." in logo.filename else ""
+    unique_filename = f"{company_id}_{uuid.uuid4().hex}.{file_extension}"
+    logo_path = f"logos/{unique_filename}"
+
+    # Save file
+    with open(logo_path, "wb") as buffer:
+        buffer.write(contents)
+
+    # Fetch old company data for audit
+    old_company = col_companies.find_one({"id": company_id})
+
+    # Update company record with logo path
+    result = col_companies.update_one(
+        {"id": company_id},
+        {"$set": {"logo_url": f"/logos/{unique_filename}"}}
+    )
+
+    if result.modified_count == 0:
+        # Clean up file if company not found
+        try:
+            os.remove(logo_path)
+        except:
+            pass
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Fetch new company data for audit
+    new_company = col_companies.find_one({"id": company_id})
+
+    # Log audit trail
+    log_audit_trail(
+        user_id=user.get("user_id"),
+        name=user.get("name"),
+        role=user.get("role"),
+        company_id=user.get("company_id"),
+        action="upload_company_logo",
+        target_table="companies",
+        target_id=company_id,
+        old_data={"logo_url": old_company.get("logo_url") if old_company else None},
+        new_data={"logo_url": new_company.get("logo_url")},
+        screen="company"  
+    )
+
+    return {"message": "Logo uploaded successfully", "logo_url": f"/logos/{unique_filename}"}
+
+@app.post("/companies", response_model=CompanyResponse)
+def create_company(
+    company: CompanyCreate,
+    user: dict = Depends(require_super_admin)
+):
+    # Duplicate checks (include is_deleted: False to check for non-deleted companies)
+    if col_companies.find_one({"name": company.name, "is_deleted": False}):
+        raise HTTPException(status_code=400, detail="Company name already exists")
+    if col_company_users.find_one({"email": company.admin_email, "is_deleted": False}):
+        raise HTTPException(status_code=400, detail="Admin email already exists")
+
+    now_iso = datetime.now().isoformat()
+    company_id = str(uuid.uuid4())
+    
+    # Initialize usage tracking first
+    initialize_usage_tracking(company_id)
+    
+    company_doc = {
+        "_id": company_id,
+        "id": company_id,
+        "name": company.name,
+        "status": "active",  # Default status is active
+        "gemini_api_key": company.gemini_api_key,
+        "llama_api_key": company.llama_api_key,
+        "gemini_model": company.gemini_model or "gemini-2.0-flash",
+        "monthly_page_limit": company.monthly_page_limit or 1000,
+        "current_month_usage": 0,  # Set to 0 for new company
+        "created_at": now_iso,
+        "is_deleted": False,  # Add this field
+        # New fields
+        "logo_url": company.logo_url,
+        "email": company.email,
+        "mobile": company.mobile,
+        "website": company.website,
+        "domain": company.domain,
+        "legal_name": company.legal_name,
+        "country": company.country,
+        "state": company.state,
+        "city": company.city,
+        "pincode": company.pincode,
+        "quotation_prefix": company.quotation_prefix,
+        "registered_address": company.registered_address,
+        
+        # Compliance details
+        "gst": company.gst,
+        
+        # Bank details
+        "account_number": company.account_number,
+        "account_holder_name": company.account_holder_name,
+        "bank_name": company.bank_name,
+        "ifsc_code": company.ifsc_code,
+        "bank_branch": company.bank_branch,
+        "bank_address": company.bank_address
+    }
+    col_companies.insert_one(company_doc)
+
+    # Initial company admin
+    admin_id = str(uuid.uuid4())
+    admin_doc = {
+        "_id": admin_id,
+        "id": admin_id,
+        "email": company.admin_email,
+        "password": bcrypt.hashpw(company.admin_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+        "name": company.name,
+        "role": "company_admin",
+        "status": "active",  # Default status is active
+        "company_id": company_id,
+        "created_at": now_iso,
+        "is_deleted": False  # Add this field
+    }
+    try:
+        col_company_users.insert_one(admin_doc)
+    except Exception as e:
+        # Keep company, but surface in logs
+        print("Failed to create company admin:", str(e))
+    log_audit_trail(
+        user_id=user.get("user_id"),
+        name=user.get("name"),
+        role=user.get("role"),
+        company_id=user.get("company_id"),
+        action="create_company",
+        target_table="companies",
+        target_id=company_id,
+        old_data=None,
+        new_data={
+            "company": company_doc,
+            "initial_admin": admin_doc
+        },
+        screen="company"  
+    )
+
+    return CompanyResponse(**company_doc)
+
+@app.get("/companies")
+def get_companies(status: Optional[str] = None, _: str = Depends(get_current_user)):
+    items = []
+    query = {"is_deleted": False}
+    if status:
+        query["status"] = status
+        
+    for doc in col_companies.find(query, {"_id": 0}):
+        # Add current usage to response
+        usage_info = {
+            "current_month_usage": get_current_month_usage(doc["id"]),
+            "monthly_page_limit": doc.get("monthly_page_limit", 1000)
+        }
+        items.append({**doc, **usage_info})
+    return items
+@app.patch("/companies/{company_id}", response_model=CompanyResponse)
+def update_company(
+    company_id: str,
+    company: CompanyUpdate,
+    user: dict = Depends(require_company_admin_or_super_admin)
+):
+    update_data = {k: v for k, v in company.dict(exclude_unset=True).items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Fetch old data
+    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    if not old_company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Filter only truly changed fields
+    changed_fields = {
+        k: v for k, v in update_data.items() 
+        if str(v) != str(old_company.get(k))  # Compare as strings to avoid type mismatch issues
+    }
+
+    if not changed_fields:
+        raise HTTPException(status_code=400, detail="No actual changes detected")
+
+    # Perform update
+    updated = col_companies.find_one_and_update(
+        {"id": company_id, "is_deleted": False},
+        {"$set": changed_fields},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0}
+    )
+
+    # Prepare audit data (only truly modified fields)
+    modified_old_data = {k: old_company.get(k) for k in changed_fields.keys()}
+    modified_new_data = {k: updated.get(k) for k in changed_fields.keys()}
+
+    # Log audit trail (no extra_info, only changed fields)
+    log_audit_trail(
+        user_id=user.get("user_id"),
+        name=user.get("name"),
+        role=user.get("role"),
+        company_id=user.get("company_id"),
+        action="update_company",
+        target_table="companies",
+        target_id=company_id,
+        old_data=modified_old_data,
+        new_data=modified_new_data,
+        screen="company"  
+    )
+
+    return CompanyResponse(**updated)
+
+
+
+@app.delete("/companies/{company_id}")
+def delete_company(
+    company_id: str,
+    x_user_id: Optional[str] = Header(default=None),
+    user: dict = Depends(require_super_admin)
+):
+    # Fetch company for audit
+    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    if not old_company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Check if company still has users
+    if col_company_users.count_documents({"company_id": company_id, "is_deleted": False}) > 0:
+        raise HTTPException(status_code=400, detail="First remove this company's users, then delete the company.")
+
+    # Soft delete: mark is_deleted=True
+    update_fields = {
+        "is_deleted": True,
+        "deleted_by": x_user_id or user.get("user_id"),
+        "deleted_at": datetime.utcnow()
+    }
+
+    result = col_companies.update_one(
+        {"id": company_id, "is_deleted": False},
+        {"$set": update_fields}
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Fetch new company data for audit
+    new_company = col_companies.find_one({"id": company_id})
+
+    # Prepare audit log (only modified fields)
+    modified_old_data = {k: old_company.get(k) for k in update_fields.keys()}
+    modified_new_data = {k: new_company.get(k) for k in update_fields.keys()}
+
+    # Log audit trail — no extra_info
+    log_audit_trail(
+        user_id=user.get("user_id"),
+        name=user.get("name"),
+        role=user.get("role"),
+        company_id=user.get("company_id"),
+        action="delete_company",
+        target_table="companies",
+        target_id=company_id,
+        old_data=modified_old_data,
+        new_data=modified_new_data,
+        screen="company"  
+    )
+
+    return {"message": "Company deleted successfully"}
+
+
+@app.get("/companies/{company_id}/api-keys")
+def get_company_api_keys(company_id: str, _: str = Depends(require_super_admin)):
+    """Get API keys for a company (masked for security)"""
+    company = col_companies.find_one(
+        {"id": company_id, "is_deleted": False},
+        {"gemini_api_key": 1, "llama_api_key": 1, "gemini_model": 1, "name": 1}
+    )
+    
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Mask API keys for security
+    response = {
+        "company_name": company["name"],
+        "gemini_model": company.get("gemini_model", "gemini-2.0-flash"),
+        "has_gemini_key": bool(company.get("gemini_api_key")),
+        "has_llama_key": bool(company.get("llama_api_key"))
+    }
+    
+    return response
+
+@app.patch("/companies/{company_id}/api-keys")
+def update_company_api_keys(
+    company_id: str, 
+    gemini_api_key: Optional[str] = Form(None),
+    llama_api_key: Optional[str] = Form(None),
+    gemini_model: Optional[str] = Form("gemini-2.0-flash"),
+    user: dict = Depends(require_super_admin)
+):
+    """Update API keys for a company"""
+
+    update_data = {}
+
+    if gemini_api_key is not None:
+        update_data["gemini_api_key"] = gemini_api_key
+
+    if llama_api_key is not None:
+        update_data["llama_api_key"] = llama_api_key
+
+    if gemini_model is not None:
+        update_data["gemini_model"] = gemini_model
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Fetch old data for audit
+    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    if not old_company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Filter only actually changed fields (avoid logging unchanged values)
+    changed_fields = {
+        k: v for k, v in update_data.items()
+        if str(v) != str(old_company.get(k))
+    }
+
+    if not changed_fields:
+        raise HTTPException(status_code=400, detail="No actual changes detected")
+
+    # Update the company
+    updated = col_companies.find_one_and_update(
+        {"id": company_id, "is_deleted": False},
+        {"$set": changed_fields},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0, "gemini_api_key": 0, "llama_api_key": 0}  # hide sensitive keys
+    )
+
+    # Prepare audit data (only modified fields)
+    modified_old_data = {k: old_company.get(k) for k in changed_fields.keys()}
+    modified_new_data = {k: update_data.get(k) for k in changed_fields.keys()}
+
+    # Log audit trail — no extra_info
+    log_audit_trail(
+        user_id=user.get("user_id"),
+        name=user.get("name"),
+        role=user.get("role"),
+        company_id=user.get("company_id"),
+        action="update_company_api_keys",
+        target_table="companies",
+        target_id=company_id,
+        old_data=modified_old_data,
+        new_data=modified_new_data,
+        screen="company"  
+    )
+
+    return {
+        "message": "API keys updated successfully",
+        "company": updated
+    }
+
+
+@app.get("/companies/{company_id}/usage")
+def get_company_usage(company_id: str, _: str = Depends(require_super_admin)):
+    """Get company usage statistics"""
+    company = col_companies.find_one(
+        {"id": company_id, "is_deleted": False},
+        {"name": 1, "monthly_page_limit": 1}
+    )
+    
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    usage_stats = get_usage_stats(company_id)
+    
+    return {
+        "company_name": company["name"],
+        "monthly_page_limit": company.get("monthly_page_limit", 1000),
+        "current_usage": usage_stats["current_usage"],
+        "usage_percentage": usage_stats["usage_percentage"]
+    }
+# generate month wise report for usage
+
+# @app.patch("/companies/{company_id}/limit")
+# def update_company_limit(
+#     company_id: str, 
+#     monthly_page_limit: int = Query(..., description="New monthly page limit"),
+#     _: str = Depends(require_super_admin)
+# ):
+#     """Update company's monthly page limit"""
+#     if monthly_page_limit < 0:
+#         raise HTTPException(status_code=400, detail="Page limit must be positive")
+    
+#     result = col_companies.update_one(
+#         {"id": company_id, "is_deleted": False},
+#         {"$set": {"monthly_page_limit": monthly_page_limit}}
+#     )
+    
+#     if result.modified_count == 0:
+#         raise HTTPException(status_code=404, detail="Company not found")
+    
+#     return {
+#         "message": f"Page limit updated to {monthly_page_limit}",
+#         "usage_stats": get_usage_stats(company_id)
+#     }
+
+@app.patch("/companies/{company_id}/limit")
+def update_company_limit(
+    company_id: str,
+    monthly_page_limit: int = Query(..., description="Additional pages to add to this month's limit"),
+    amount_paid: float = Query(..., description="Amount paid in ₹ for this page limit update"),
+    current_user: dict = Depends(require_super_admin)
+):
+    """Add additional page limit for the current month and log paid amount in history."""
+
+    if monthly_page_limit <= 0:
+        raise HTTPException(status_code=400, detail="Page limit must be positive")
+    if amount_paid <= 0:
+        raise HTTPException(status_code=400, detail="Amount paid must be positive")
+
+    current_month = datetime.now().strftime("%Y-%m")
+
+    # Fetch old usage doc for audit
+    old_usage = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+    previous_limit = old_usage.get("page_limit", 0) if old_usage else 0
+    new_limit = previous_limit + monthly_page_limit
+
+    if not old_usage:
+        # New month entry
+        usage_doc = {
+            "company_id": company_id,
+            "month": current_month,
+            "page_limit": monthly_page_limit,
+            "page_count": 0,
+            "history": [
+                {
+                    "updated_at": datetime.now(),
+                    "previous_limit": 0,
+                    "added_limit": monthly_page_limit,
+                    "new_limit": monthly_page_limit,
+                    "amount_paid": amount_paid,
+                    "updated_by": {
+                        "user_id": current_user.get("user_id"),
+                        "role": current_user.get("role")
+                    }
+                }
+            ]
+        }
+        db.company_usage.insert_one(usage_doc)
+    else:
+        # Existing month, update limit
+        db.company_usage.update_one(
+            {"_id": old_usage["_id"]},
+            {
+                "$set": {
+                    "page_limit": new_limit,
+                    "last_updated": datetime.now()
+                },
+                "$push": {
+                    "history": {
+                        "updated_at": datetime.now(),
+                        "previous_limit": previous_limit,
+                        "added_limit": monthly_page_limit,
+                        "new_limit": new_limit,
+                        "amount_paid": amount_paid,
+                        "updated_by": {
+                            "user_id": current_user.get("user_id"),
+                            "role": current_user.get("role")
+                        }
+                    }
+                }
+            }
+        )
+
+    # Update main company record
+    col_companies.update_one(
+        {"id": company_id, "is_deleted": False},
+        {"$set": {"monthly_page_limit": new_limit}}
+    )
+
+    # Prepare audit log — include context fields
+    modified_old_data = {"monthly_page_limit": previous_limit}
+    modified_new_data = {
+        "monthly_page_limit": new_limit,
+        "added_limit": monthly_page_limit,
+        "amount_paid": amount_paid,
+        "month": current_month
+    }
+
+    # Log audit trail — no extra_info
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="update_company_limit",
+        target_table="companies",
+        target_id=company_id,
+        old_data=modified_old_data,
+        new_data=modified_new_data,
+        screen="company"  
+    )
+
+    updated_stats = get_usage_stats(company_id)
+    return {
+        "message": f"Page limit increased by {monthly_page_limit}. New total: {new_limit}. Paid ₹{amount_paid}",
+        "usage_stats": updated_stats
+    }
+
+
+
+from fastapi import Query
+
+@app.get("/companies/usage-report")
+def get_companies_usage_report(
+    month: str = Query(None, description="Month in YYYY-MM format"),
+    _: dict = Depends(require_super_admin)
+):
+    """
+    Returns a report of all active companies with usage, page limit, pages remaining, and total paid for the given month.
+    If no month is provided, defaults to the current month.
+    """
+    current_month = month or datetime.now().strftime("%Y-%m")
+    report = []
+
+    companies = col_companies.find({"is_deleted": False, "status": "active"}, {"id": 1, "name": 1, "monthly_page_limit": 1})
+    
+    for company in companies:
+        company_id = company["id"]
+        usage_doc = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+
+        if usage_doc:
+            current_usage = usage_doc.get("page_count", 0)
+            monthly_limit = usage_doc.get("page_limit", 0)
+            history = usage_doc.get("history", [])
+        else:
+            current_usage = 0
+            monthly_limit = 0
+            history = []
+
+        remaining_pages = max(monthly_limit - current_usage, 0)
+        total_paid = sum(h.get("amount_paid", 0) for h in history) if history else 0
+        usage_percentage = (current_usage / monthly_limit * 100) if monthly_limit > 0 else 0
+
+        report.append({
+            "company_id": company_id,
+            "company_name": company["name"],
+            "current_usage": current_usage,
+            "monthly_limit": monthly_limit,
+            "remaining_pages": remaining_pages,
+            "usage_percentage": round(usage_percentage, 1),
+            "total_paid": total_paid,
+            "history": history
+        })
+    
+    return {"report": report, "month": current_month}
+
+# from fastapi import Query
+# from datetime import datetime
+# from dateutil.relativedelta import relativedelta
+
+# @app.get("/companies/usage-report")
+# def get_companies_usage_report(
+#     start_month: str = Query(None, description="Start month in YYYY-MM format"),
+#     end_month: str = Query(None, description="End month in YYYY-MM format"),
+#     _: dict = Depends(require_super_admin)
+# ):
+#     """
+#     Returns report for one month or a range of months.
+#     If only start_month or end_month is provided, defaults to single month mode.
+#     """
+#     report = []
+#     now = datetime.now()
+
+#     # Determine range
+#     if start_month and end_month:
+#         start = datetime.strptime(start_month, "%Y-%m")
+#         end = datetime.strptime(end_month, "%Y-%m")
+#         months = []
+#         current = start
+#         while current <= end:
+#             months.append(current.strftime("%Y-%m"))
+#             current += relativedelta(months=1)
+#     else:
+#         # Default: current month or explicit single month
+#         current_month = start_month or end_month or now.strftime("%Y-%m")
+#         months = [current_month]
+
+#     companies = col_companies.find(
+#         {"is_deleted": False, "status": "active"},
+#         {"id": 1, "name": 1, "monthly_page_limit": 1}
+#     )
+
+#     for company in companies:
+#         company_id = company["id"]
+#         monthly_data = []
+
+#         for month in months:
+#             usage_doc = db.company_usage.find_one({"company_id": company_id, "month": month})
+
+#             if usage_doc:
+#                 current_usage = usage_doc.get("page_count", 0)
+#                 monthly_limit = usage_doc.get("page_limit", 0)
+#                 history = usage_doc.get("history", [])
+#             else:
+#                 current_usage = 0
+#                 monthly_limit = 0
+#                 history = []
+
+#             remaining_pages = max(monthly_limit - current_usage, 0)
+#             total_paid = sum(h.get("amount_paid", 0) for h in history) if history else 0
+#             usage_percentage = (current_usage / monthly_limit * 100) if monthly_limit > 0 else 0
+
+#             monthly_data.append({
+#                 "month": month,
+#                 "current_usage": current_usage,
+#                 "monthly_limit": monthly_limit,
+#                 "remaining_pages": remaining_pages,
+#                 "usage_percentage": round(usage_percentage, 1),
+#                 "total_paid": total_paid,
+#                 "history": history
+#             })
+
+#         report.append({
+#             "company_id": company_id,
+#             "company_name": company["name"],
+#             "months": monthly_data
+#         })
+
+#     return {"report": report, "months": months}
+
+
+
+@app.patch("/companies/{company_id}/status")
+def update_company_status(
+    company_id: str,
+    status: str = Query(..., description="Status to set"),
+    current_user: dict = Depends(require_super_admin)
+):
+    if status not in ["active", "inactive"]:
+        raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
+
+    # Fetch old company status for audit
+    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    if not old_company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    old_status = old_company.get("status")
+
+    # Update company status
+    col_companies.update_one(
+        {"id": company_id, "is_deleted": False},
+        {"$set": {"status": status}}
+    )
+
+    # Update company users based on company status
+    if status == "inactive":
+        # Deactivate all company users
+        old_users = list(col_company_users.find({"company_id": company_id, "is_deleted": False}))
+        col_company_users.update_many(
+            {"company_id": company_id, "is_deleted": False},
+            {"$set": {"status": "inactive"}}
+        )
+        # Audit log for users
+        for u in old_users:
+            log_audit_trail(
+                user_id=current_user.get("user_id"),
+                name=current_user.get("name"),
+                role=current_user.get("role"),
+                company_id=current_user.get("company_id"),
+                action="update_user_status_due_to_company_deactivation",
+                target_table="company_users",
+                target_id=u.get("id"),
+                old_data={"status": u.get("status")},
+                new_data={"status": "inactive"},
+                screen="company"  
+            )
+
+    elif status == "active":
+        # Reactivate only company_admin users
+        admin_users = list(col_company_users.find({
+            "company_id": company_id,
+            "is_deleted": False,
+            "role": "company_admin"
+        }))
+        col_company_users.update_many(
+            {"company_id": company_id, "is_deleted": False, "role": "company_admin"},
+            {"$set": {"status": "active"}}
+        )
+        # Audit log for reactivated admins
+        for u in admin_users:
+            log_audit_trail(
+                user_id=current_user.get("user_id"),
+                name=current_user.get("name"),
+                role=current_user.get("role"),
+                company_id=current_user.get("company_id"),
+                action="reactivate_company_admin",
+                target_table="company_users",
+                target_id=u.get("id"),
+                old_data={"status": "inactive"},
+                new_data={"status": "active"},
+                screen="users"  
+            )
+
+    # Log audit for company status change
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="update_company_status",
+        target_table="companies",
+        target_id=company_id,
+        old_data={"status": old_status},
+        new_data={"status": status},
+        screen="company"  
+    )
+
+    return {"message": f"Company status updated to {status}"}
+
+
+@app.post("/companies/{company_id}/restore")
+def restore_company_endpoint(company_id: str, current_user: dict = Depends(require_super_admin)):
+    # Fetch deleted company for audit
+    old_company = col_companies.find_one({"id": company_id, "is_deleted": True})
+    if not old_company:
+        raise HTTPException(status_code=404, detail="Company not found or not deleted")
+
+    # Fetch deleted users
+    old_users = list(col_company_users.find({"company_id": company_id, "is_deleted": True}))
+
+    # Restore company and its users
+    success = restore_company_and_users(company_id, current_user.get("user_id"))
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to restore company or users")
+
+    # Fetch restored company and users
+    new_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    new_users = list(col_company_users.find({"company_id": company_id, "is_deleted": False}))
+
+    # Prepare audit data — only changed fields
+    modified_old_data = {"is_deleted": True, "restored_user_count": len(old_users)}
+    modified_new_data = {"is_deleted": False, "restored_user_count": len(new_users)}
+
+    # Log audit trail
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="restore_company_with_users",
+        target_table="companies",
+        target_id=company_id,
+        old_data=modified_old_data,
+        new_data=modified_new_data,
+        screen="company"  
+    )
+
+    return {"message": f"Company and {len(new_users)} users restored successfully"}
+
+
+
+# @app.post("/companies/bulk-status")
+# def bulk_update_companies_status(data: BulkStatusUpdate, _: str = Depends(require_super_admin)):
+#     if data.status not in ["active", "inactive"]:
+#         raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
+    
+#     result = col_companies.update_many(
+#         {"id": {"$in": data.ids}, "is_deleted": False},
+#         {"$set": {"status": data.status}}
+#     )
+    
+#     # If deactivating companies, also deactivate their users
+#     if data.status == "inactive":
+#         col_company_users.update_many(
+#             {"company_id": {"$in": data.ids}, "is_deleted": False},
+#             {"$set": {"status": "inactive"}}
+#         )
+    
+#     return {"message": f"Updated {result.modified_count} companies to {data.status}"}
 
 # --------------------
-# Resume parser
+# User Routes
+# --------------------
+
+
+# Mount for serving user profile images
+app.mount("/logos/users", StaticFiles(directory="logos/users"), name="user_logos")
+
+@app.post("/users/{user_id}/profile-photo")
+async def upload_user_photo(
+    user_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
+    # Validate file type
+    if file.content_type not in ["image/jpeg", "image/png", "image/gif"]:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, and GIF images are allowed")
+
+    # Check file size (1MB max)
+    contents = await file.read()
+    if len(contents) > 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size must be less than 1MB")
+
+    # Ensure directory exists
+    os.makedirs("logos/users", exist_ok=True)
+
+    # Generate unique filename
+    file_extension = file.filename.split(".")[-1] if "." in file.filename else ""
+    unique_filename = f"{user_id}_{uuid.uuid4().hex}.{file_extension}"
+    logo_path = f"logos/users/{unique_filename}"
+
+    # Save file
+    with open(logo_path, "wb") as buffer:
+        buffer.write(contents)
+
+    # Fetch old user data for audit
+    old_user = col_company_users.find_one({"id": user_id})
+    old_photo = old_user.get("profile_photo_url") if old_user else None
+
+    # Update user record with new photo URL
+    result = col_company_users.update_one(
+        {"id": user_id, "is_deleted": False},
+        {"$set": {"profile_photo_url": f"/logos/users/{unique_filename}"}}
+    )
+
+    if result.modified_count == 0:
+        # Rollback file if update fails
+        try:
+            os.remove(logo_path)
+        except:
+            pass
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Fetch new user data for audit
+    new_user = col_company_users.find_one({"id": user_id})
+    new_photo = new_user.get("profile_photo_url")
+
+    # Log audit trail — only modified field
+    log_audit_trail(
+        user_id=user.get("user_id"),
+        name=user.get("name"),
+        role=user.get("role"),
+        company_id=user.get("company_id"),
+        action="upload_user_profile_photo",
+        target_table="company_users",
+        target_id=user_id,
+        old_data={"profile_photo_url": old_photo},
+        new_data={"profile_photo_url": new_photo},
+        screen="users"  
+    )
+
+    return {
+        "message": "Profile photo uploaded successfully",
+        "profile_photo_url": f"/logos/users/{unique_filename}"
+    }
+
+
+
+@app.post("/users", response_model=UserResponse)
+def create_user(user: UserCreate, current_user: dict = Depends(require_super_admin)):
+    try:
+        now_iso = datetime.now().isoformat()
+        user_id = str(uuid.uuid4())
+
+        # Auto-calc age if dob is given
+        calculated_age = None
+        if user.dob:
+            today = date.today()
+            calculated_age = today.year - user.dob.year - (
+                (today.month, today.day) < (user.dob.month, user.dob.day)
+            )
+
+        user_doc = {
+            "_id": user_id,
+            "id": user_id,
+            "email": user.email,
+            "password": bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+            "name": user.name,
+            "middle_name": user.middle_name,
+            "last_name": user.last_name,
+            "gender": user.gender,
+            "dob": user.dob.isoformat() if user.dob else None,
+            "age": user.age if user.age is not None else calculated_age,
+            "mobile": user.mobile,
+            "department": user.department,
+            "designation": user.designation,
+            "date_of_joining": user.date_of_joining.isoformat() if user.date_of_joining else None,
+            "role": "user",
+            "status": user.status or "active",
+            "company_id": user.company_id,
+            "profile_photo_url": user.profile_photo_url,
+            "created_at": now_iso,
+            "is_deleted": False
+        }
+
+        # ✅ Insert user record
+        col_company_users.insert_one(user_doc)
+
+        # ✅ Audit trail for user creation
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="create_user",
+            target_table="company_users",
+            target_id=user_id,
+            old_data=None,
+            new_data={k: v for k, v in user_doc.items() if k != "password"},
+            screen="users"  
+        )
+
+        return UserResponse(**{k: v for k, v in user_doc.items() if k != "_id"})
+    
+    except Exception as e:
+        print("Error in create_user:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.get("/users")
+def get_users(company_id: Optional[str] = None, status: Optional[str] = None, _: str = Depends(get_current_user)):
+    query = {"is_deleted": False}  # Add this condition
+    if company_id:
+        query["company_id"] = company_id
+    if status:
+        query["status"] = status
+        
+    items = []
+    for doc in col_company_users.find(query, {"_id": 0}):
+        items.append(doc)
+    return items
+@app.get("/users/{user_id}")
+def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    # Users can only access their own data
+    if current_user["role"] == "user" and current_user["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this user's data")
+    
+    # Add company_id check for company admins
+    if current_user["role"] == "company_admin":
+        user = col_company_users.find_one({"id": user_id, "company_id": current_user["company_id"], "is_deleted": False}, {"_id": 0})
+    else:
+        user = col_company_users.find_one({"id": user_id, "is_deleted": False}, {"_id": 0})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return user
+@app.patch("/users/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: str, 
+    user: UserUpdate, 
+    current_user: dict = Depends(require_super_admin)
+):
+    # Prepare update data
+    update_data = {k: v for k, v in user.dict(exclude_unset=True).items() if v is not None}
+    
+    if "password" in update_data:
+        update_data["password"] = bcrypt.hashpw(update_data["password"].encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Fetch old user record for audit
+    old_user = col_company_users.find_one({"id": user_id, "is_deleted": False})
+    if not old_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Update the user
+    updated = col_company_users.find_one_and_update(
+        {"id": user_id, "is_deleted": False},
+        {"$set": update_data},
+        return_document=ReturnDocument.AFTER
+    )
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update user")
+
+    updated.pop("_id", None)
+
+    # Prepare audit log — only include fields where value actually changed and exclude password
+    old_data_for_audit = {}
+    new_data_for_audit = {}
+    for key in update_data.keys():
+        if key != "password" and old_user.get(key) != updated.get(key):
+            old_data_for_audit[key] = old_user.get(key)
+            new_data_for_audit[key] = updated.get(key)
+
+    # Log audit trail only if something actually changed
+    if old_data_for_audit:
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="update_user",
+            target_table="company_users",
+            target_id=user_id,
+            old_data=old_data_for_audit,
+            new_data=new_data_for_audit,
+            screen="users"  
+        )
+
+    return UserResponse(**updated)
+
+
+@app.delete("/users/{user_id}")
+def delete_user(
+    user_id: str, 
+    x_user_id: Optional[str] = Header(default=None), 
+    current_user: dict = Depends(require_super_admin)
+):
+    # Fetch old user record for audit
+    old_user = col_company_users.find_one({"id": user_id, "is_deleted": False})
+    
+    if not old_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Perform soft delete
+    success = soft_delete_company_user(user_id, current_user.get("user_id"))
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+
+    # Fetch new user record after soft delete
+    new_user = col_company_users.find_one({"id": user_id})
+
+    # Determine which fields changed
+    audit_fields = ["is_deleted", "deleted_by", "deleted_at"]
+    old_data_for_audit = {k: old_user.get(k) for k in audit_fields if k in old_user}
+    new_data_for_audit = {k: new_user.get(k) for k in audit_fields if new_user and k in new_user}
+
+    # Log audit trail only for changed fields
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="delete_user",
+        target_table="company_users",
+        target_id=user_id,
+        old_data=old_data_for_audit,
+        new_data=new_data_for_audit,
+        screen="users"  
+    )
+
+    return {"message": "User deleted"}
+
+
+
+@app.patch("/users/{user_id}/status")
+def update_user_status(
+    user_id: str, 
+    body: UserStatusUpdate,
+    admin_info: dict = Depends(require_company_admin_or_super_admin)
+):
+    if body.status not in ["active", "inactive"]:
+        raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
+
+    # Build query based on role
+    query = {"id": user_id, "is_deleted": False}
+    if admin_info["role"] == "company_admin":
+        query["company_id"] = admin_info["company_id"]
+
+    # Fetch old user record for audit
+    old_user = col_company_users.find_one(query)
+    if not old_user:
+        raise HTTPException(status_code=404, detail="User not found or not authorized")
+
+    # Create status log entry
+    status_entry = {
+        "status": body.status,
+        "reason": body.reason,
+        "updated_at": datetime.utcnow(),
+        "updated_by": admin_info["user_id"]
+    }
+
+    # Update user document
+    result = col_company_users.update_one(
+        query,
+        {
+            "$set": {"status": body.status},
+            "$push": {"status_history": status_entry}
+        }
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="User not updated")
+
+    # Fetch new user record for audit
+    new_user = col_company_users.find_one({"id": user_id})
+
+    # Determine changed fields for audit
+    audit_old_data = {"status": old_user.get("status")}
+    audit_new_data = {"status": new_user.get("status"), "status_reason": body.reason}
+
+    # Log audit trail only if something changed
+    log_audit_trail(
+        user_id=admin_info.get("user_id"),
+        name=admin_info.get("name"),
+        role=admin_info.get("role"),
+        company_id=admin_info.get("company_id"),
+        action="update_user_status",
+        target_table="company_users",
+        target_id=user_id,
+        old_data=audit_old_data,
+        new_data=audit_new_data,
+        screen="users"  
+    )
+
+    return {
+        "message": f"User status updated to {body.status}",
+        "history_entry": status_entry
+    }
+
+
+@app.post("/users/{user_id}/restore")
+def restore_user_endpoint(user_id: str, current_user: dict = Depends(require_super_admin)):
+    # Fetch old user record for audit
+    old_user = col_company_users.find_one({"id": user_id, "is_deleted": True})
+    if not old_user:
+        raise HTTPException(status_code=404, detail="User not found or not deleted")
+
+    restored_by = current_user.get("user_id", "system")
+    success = restore_company_user(user_id, restored_by)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to restore user")
+
+    # Fetch new user record for audit
+    new_user = col_company_users.find_one({"id": user_id})
+
+    # Determine changed fields only (here mainly is_deleted and maybe status)
+    changed_fields = {}
+    for field in ["is_deleted", "status", "status_reason"]:  # add other fields if needed
+        old_value = old_user.get(field)
+        new_value = new_user.get(field)
+        if old_value != new_value:
+            changed_fields[field] = {"old": old_value, "new": new_value}
+
+    # Prepare old_data and new_data for audit (only changed fields)
+    old_data_for_audit = {k: v["old"] for k, v in changed_fields.items()}
+    new_data_for_audit = {k: v["new"] for k, v in changed_fields.items()}
+
+    # Log audit trail
+    if changed_fields:
+        log_audit_trail(
+            user_id=restored_by,
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="restore_user",
+            target_table="company_users",
+            target_id=user_id,
+            old_data=old_data_for_audit,
+            new_data=new_data_for_audit,
+            screen="users"  
+        )
+
+    return {"message": "User restored successfully"}
+
+
+# @app.post("/users/bulk-status")
+# def bulk_update_users_status(
+#     data: BulkStatusUpdate, 
+#     admin_info: dict = Depends(require_company_admin_or_super_admin)
+# ):
+#     if data.status not in ["active", "inactive"]:
+#         raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
+    
+#     # Build query based on admin role
+#     query = {"id": {"$in": data.ids}, "is_deleted": False}
+    
+#     # If user is company_admin, they can only update users in their own company
+#     if admin_info["role"] == "company_admin":
+#         query["company_id"] = admin_info["company_id"]
+    
+#     result = col_company_users.update_many(
+#         query,
+#         {"$set": {"status": data.status}}
+#     )
+    
+#     return {"message": f"Updated {result.modified_count} users to {data.status}"}
+
+
+# --------------------
+# Resume Analysis Routes
 # --------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-
-
-@app.on_event("startup")
-def on_startup():
-    _ensure_env_loaded()
-    # Initialize Supabase client (module import also initializes it)
-    try:
-        #initialize_supabase()
-        initialize_mongodb()
-    except Exception:
-        # Defer errors to first DB call
-        pass
-    # Initialize Gemini model once
-    try:
-        app.state.gemini_model = initialize_gemini()
-    except Exception as e:
-        app.state.gemini_model = None
-        print(f"Gemini not initialized: {e}")
-
-
-@app.get("/health")
-def health() -> Dict[str, Any]:
-    return {"ok": True, "gemini": bool(app.state.__dict__.get("gemini_model"))}
-
-# Add this dependency to extract user info from the token
-def get_current_user(request: Request, 
-                   x_user_role: Optional[str] = Header(default=None), 
-                   x_user_id: Optional[str] = Header(default=None),
-                   x_company_id: Optional[str] = Header(default=None)):
-    
-    # Debug logging to identify header issues
-    print(f"Auth headers - Role: {x_user_role}, User ID: {x_user_id}, Company ID: {x_company_id}")
-    
-    if not x_user_role or not x_user_id:
-        # Check for alternative header names that might be sent from frontend
-        alternative_user_id = request.headers.get('X-User-ID') or request.headers.get('X-UserId') or request.headers.get('User-Id')
-        alternative_role = request.headers.get('X-User-Role') or request.headers.get('User-Role')
-        
-        if alternative_user_id and alternative_role:
-            x_user_id = alternative_user_id
-            x_user_role = alternative_role
-            x_company_id = x_company_id or request.headers.get('X-Company-Id') or request.headers.get('Company-Id')
-        else:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    return {
-        "role": x_user_role,
-        "id": x_user_id,
-        "company_id": x_company_id
-    }
 
 @app.post("/analyze")
 async def analyze_resume_endpoint(
@@ -594,43 +2391,48 @@ async def analyze_resume_endpoint(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid jd_data JSON: {e}")
 
-    # Read file content
     content = await resume.read()
+    page_count = count_pages(content, resume.filename)
 
-    # Save uploaded file to a temp path for parsing
+    if not check_usage_limit(current_user["company_id"], page_count):
+        raise HTTPException(
+            status_code=429, 
+            detail=f"Monthly page limit exceeded. Current usage: {get_current_month_usage(current_user['company_id'])}/{get_company_page_limit(current_user['company_id'])}"
+        )
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(resume.filename)[1]) as tmp:
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
-        # Parse resume using LlamaParse (json first, fallback to text)
-        resume_text = ""
-        try:
-            parser_json = initialize_llama_parser("json")
-            resume_text = parse_resume(tmp_path, parser_json)
-        except Exception:
-            parser_text = initialize_llama_parser("text")
-            resume_text = parse_resume(tmp_path, parser_text)
-
-        if not resume_text:
-            raise HTTPException(status_code=422, detail="Failed to parse resume text")
-
-        # Analyze with Gemini
-        model = app.state.__dict__.get("gemini_model")
-        if model is None:
-            model = initialize_gemini()
-            app.state.gemini_model = model
-
-        analysis = analyze_resume_comprehensive(resume_text, jd.dict(), model)
-
-        # Validate current_user data before storing
-        if not current_user.get("id"):
-            raise HTTPException(status_code=400, detail="User ID not found in authentication")
+        company = col_companies.find_one(
+            {"id": current_user["company_id"], "is_deleted": False},
+            {"gemini_api_key": 1, "llama_api_key": 1, "gemini_model": 1}
+        )
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
         
-        if not current_user.get("company_id"):
-            raise HTTPException(status_code=400, detail="Company ID not found in authentication")
+        parser_json = initialize_llama_parser("json", company.get("llama_api_key"))
+        resume_text = parse_resume(tmp_path, parser_json)
+        if not resume_text:
+            parser_text = initialize_llama_parser("text", company.get("llama_api_key"))
+            resume_text = parse_resume(tmp_path, parser_text)
+        if not resume_text:
+            raise HTTPException(status_code=422, detail="❌ Failed to parse resume")
 
-        # Store in MongoDB with file
+        gemini_model = initialize_gemini(
+            company.get("gemini_api_key"), 
+            company.get("gemini_model", "gemini-2.0-flash")
+        )
+
+        jd_for_gemini = jd.dict()
+        for key in ["location", "budget", "number_of_positions", "work_mode"]:
+            jd_for_gemini.pop(key, None)
+
+        analysis = analyze_resume_comprehensive(
+            resume_text, jd_for_gemini, gemini_model, company.get("gemini_api_key")
+        )
+
         store_key = store_results_in_mongodb(
             analysis,
             jd.dict(),
@@ -639,15 +2441,37 @@ async def analyze_resume_endpoint(
             content,
             jd.client_name,
             jd.jd_title,
-            current_user["id"],  # created_by
-            current_user["company_id"]  # company_id
+            current_user["user_id"],
+            current_user["company_id"],
+            current_user.get("name"),
+            current_user.get("role")
         )
+        increment_usage(current_user["company_id"], page_count)
+
+        # ------------------ AUDIT LOG ------------------
+        new_data_for_audit = {
+            k: v for k, v in analysis.items() if k != "file_content"
+        }
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="analyze_resume",
+            target_table="analysis_history",
+            target_id=store_key,
+            old_data=None,
+            new_data=new_data_for_audit,
+            screen="users"  
+        )
+        # ------------------------------------------------
 
         return JSONResponse(
             status_code=200,
             content={
                 "analysis_id": store_key,
                 "analysis": analysis,
+                "page_count": page_count,
             },
         )
     finally:
@@ -656,18 +2480,10 @@ async def analyze_resume_endpoint(
         except Exception:
             pass
 
-# @app.get("/history")
-# def list_history() -> List[Dict[str, Any]]:
-#     return fetch_analysis_history()
 
-
-# @app.get("/clients")
-# def list_clients() -> List[str]:
-#     return fetch_client_names()
 @app.get("/history")
 def list_history(current_user: dict = Depends(get_current_user)) -> List[Dict[str, Any]]:
     return fetch_analysis_history(current_user)
-
 
 @app.get("/download/{analysis_id}")
 async def download_resume(analysis_id: str, current_user: dict = Depends(get_current_user)):
@@ -682,7 +2498,7 @@ async def download_resume(analysis_id: str, current_user: dict = Depends(get_cur
             raise HTTPException(status_code=404, detail="Analysis not found")
             
         # If user is not admin, check if they created this analysis
-        if current_user["role"] != "company_admin" and analysis["created_by"] != current_user["id"]:
+        if current_user["role"] != "company_admin" and analysis["created_by"] != current_user["user_id"]:
             raise HTTPException(status_code=403, detail="Not authorized to access this resource")
         
         # Get file content from BSON Binary
@@ -699,37 +2515,10 @@ async def download_resume(analysis_id: str, current_user: dict = Depends(get_cur
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
 
-# Update the clients endpoint
 @app.get("/clients")
 def list_clients(current_user: dict = Depends(get_current_user)) -> List[str]:
     return fetch_client_names(current_user["company_id"])
 
-# @app.get("/clients/{client_name}/jds")
-# def list_jd_names(client_name: str) -> List[str]:
-#     jd_names = fetch_jd_names_for_client(client_name)
-#     return jd_names or []
-
-
-# @app.get("/clients/{client_name}/jds/{jd_title}")
-# def get_jd_details(client_name: str, jd_title: str) -> Dict[str, Any]:
-#     jd = fetch_client_details_by_jd(client_name, jd_title)
-#     if not jd:
-#         raise HTTPException(status_code=404, detail="JD not found")
-#     return jd
-
-
-# @app.put("/clients/{client_name}/jds/{jd_title}")
-# def put_update_jd(client_name: str, jd_title: str, body: UpdateJD) -> Dict[str, Any]:
-#     success = update_job_description(
-#         client_name,
-#         jd_title,
-#         body.required_experience,
-#         body.primary_skills,
-#         body.secondary_skills,
-#     )
-#     if not success:
-#         raise HTTPException(status_code=400, detail="Failed to update job description")
-#     return {"ok": True}
 @app.get("/clients/{client_name}/jds")
 def list_jd_names(client_name: str, current_user: dict = Depends(get_current_user)) -> List[str]:
     jd_names = fetch_jd_names_for_client(client_name, current_user["company_id"])
@@ -743,8 +2532,44 @@ def get_jd_details(client_name: str, jd_title: str, current_user: dict = Depends
     return jd
 
 @app.put("/clients/{client_name}/jds/{jd_title}")
-def put_update_jd(client_name: str, jd_title: str, body: UpdateJD, current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
-    success = update_job_description(
+def put_update_jd(
+    client_name: str, 
+    jd_title: str, 
+    body: UpdateJD, 
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+
+    # Fetch existing JD document
+    client_doc = db.clients.find_one({
+        "client_name": to_init_caps(client_name),
+        "company_id": current_user["company_id"],
+        "is_deleted": False
+    })
+    if not client_doc:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    jd_doc = db.job_descriptions.find_one({
+        "client_id": client_doc["_id"],
+        "jd_title": to_init_caps(jd_title),
+        "company_id": current_user["company_id"],
+        "is_deleted": False
+    })
+    if not jd_doc:
+        raise HTTPException(status_code=404, detail="Job description not found")
+
+    # Determine changed fields
+    changed_fields = {}
+    for field in ["required_experience", "primary_skills", "secondary_skills"]:
+        old_value = jd_doc.get(field)
+        new_value = getattr(body, field)
+        if old_value != new_value:
+            changed_fields[field] = {"old": old_value, "new": new_value}
+
+    if not changed_fields:
+        raise HTTPException(status_code=400, detail="No changes detected")
+
+    # Update JD document
+    update_success = update_job_description(
         client_name,
         jd_title,
         body.required_experience,
@@ -752,30 +2577,797 @@ def put_update_jd(client_name: str, jd_title: str, body: UpdateJD, current_user:
         body.secondary_skills,
         current_user["company_id"]
     )
-    if not success:
+    if not update_success:
         raise HTTPException(status_code=400, detail="Failed to update job description")
+
+    # Prepare old_data and new_data for audit
+    old_data_for_audit = {k: v["old"] for k, v in changed_fields.items()}
+    new_data_for_audit = {k: v["new"] for k, v in changed_fields.items()}
+
+    # Log audit trail
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="update_job_description",
+        target_table="job_descriptions",
+        target_id=str(jd_doc["_id"]),
+        old_data=old_data_for_audit,
+        new_data=new_data_for_audit,
+        screen="users"  
+    )
+
     return {"ok": True}
+
+
+
+@app.post("/analysis/{analysis_id}/restore")
+def restore_analysis_endpoint(analysis_id: str, current_user: dict = Depends(get_current_user)):
+    # Fetch old data for audit
+    old_data = db.analysis_history.find_one({"analysis_id": analysis_id})
+    if not old_data or not old_data.get("is_deleted", True):
+        raise HTTPException(status_code=404, detail="Analysis not found or not deleted")
+    
+    success = restore_analysis(analysis_id, current_user["company_id"], current_user["user_id"])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to restore analysis")
+
+    # Fetch new data for audit
+    new_data = db.analysis_history.find_one({"analysis_id": analysis_id})
+
+    # Log audit
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="restore_analysis",
+        target_table="analysis_history",
+        target_id=analysis_id,
+        old_data={"is_deleted": old_data.get("is_deleted")},
+        new_data={"is_deleted": new_data.get("is_deleted")},
+        screen="users"  
+    )
+
+    return {"message": "Analysis restored"}
+
+
+@app.post("/clients/{client_name}/restore")
+def restore_client_endpoint(client_name: str, current_user: dict = Depends(get_current_user)):
+    # Fetch old client for audit
+    old_client = db.clients.find_one({
+        "client_name": to_init_caps(client_name),
+        "company_id": current_user["company_id"],
+        "is_deleted": True
+    })
+    if not old_client:
+        raise HTTPException(status_code=404, detail="Client not found or not deleted")
+
+    success = restore_client(client_name, current_user["company_id"], current_user["user_id"])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to restore client")
+
+    # Fetch new client for audit
+    new_client = db.clients.find_one({"_id": old_client["_id"]})
+
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="restore_client",
+        target_table="clients",
+        target_id=str(old_client["_id"]),
+        old_data={"is_deleted": old_client.get("is_deleted")},
+        new_data={"is_deleted": new_client.get("is_deleted")},
+        screen="users"  
+    )
+
+    return {"message": "Client restored"}
+
+
+@app.post("/clients/{client_name}/jds/{jd_title}/restore")
+def restore_jd_endpoint(client_name: str, jd_title: str, current_user: dict = Depends(get_current_user)):
+    # Fetch old JD for audit
+    old_jd = db.job_descriptions.find_one({
+        "jd_title": to_init_caps(jd_title),
+        "company_id": current_user["company_id"],
+        "is_deleted": True
+    })
+    if not old_jd:
+        raise HTTPException(status_code=404, detail="Job description not found or not deleted")
+
+    success = restore_jd(client_name, jd_title, current_user["company_id"], current_user["user_id"])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to restore job description")
+
+    # Fetch new JD for audit
+    new_jd = db.job_descriptions.find_one({"_id": old_jd["_id"]})
+
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="restore_jd",
+        target_table="job_descriptions",
+        target_id=str(old_jd["_id"]),
+        old_data={"is_deleted": old_jd.get("is_deleted")},
+        new_data={"is_deleted": new_jd.get("is_deleted")},
+        screen="users"  
+    )
+
+    return {"message": "Job description restored"}
+
+
+
+# --------------------
+# Client Management Endpoints
+# --------------------
+
+@app.get("/clients/table-data")
+def get_clients_table_data(
+    status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get clients data in tabular format"""
+    try:
+        # Build query for clients
+        client_query = {
+            "company_id": current_user["company_id"],
+            "is_deleted": False
+        }
+        
+        if status:
+            client_query["status"] = status
+            
+        clients = list(db.clients.find(client_query).sort("client_name", 1))
+        
+        result = []
+        for client in clients:
+            # Get active JDs count for active clients
+            jd_count = 0
+            if client.get("status") == "active":
+                jd_count = db.job_descriptions.count_documents({
+                    "client_id": client["_id"],
+                    "company_id": current_user["company_id"],
+                    "is_deleted": False,
+                    "status": "active"
+                })
+            
+            result.append({
+                "id": str(client["_id"]),
+                "name": client["client_name"],
+                "status": client.get("status", "active"),
+                "jd_count": jd_count,
+                "created_at": client.get("created_at", "")
+            })
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch clients: {str(e)}")
+
+@app.get("/job-descriptions/{client_id}")
+def get_job_descriptions_for_client(
+    client_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all job descriptions for a specific client"""
+    try:
+        from bson import ObjectId
+        client_oid = ObjectId(client_id)
+        
+        # Check if client exists and is active
+        client = db.clients.find_one({
+            "_id": client_oid,
+            "company_id": current_user["company_id"],
+            "is_deleted": False,
+            "status": "active"
+        })
+        
+        if not client:
+            raise HTTPException(status_code=404, detail="Active client not found")
+        
+        # Get all active JDs for this client
+        jds = list(db.job_descriptions.find({
+            "client_id": client_oid,
+            "company_id": current_user["company_id"],
+            "is_deleted": False,
+            "status": "active"
+        }).sort("jd_title", 1))
+        
+        jd_list = []
+        for jd in jds:
+            jd_list.append({
+                "id": str(jd["_id"]),
+                "title": jd.get("jd_title", ""),
+                "required_experience": jd.get("required_experience", ""),
+                "primary_skills": jd.get("primary_skills", []),
+                "secondary_skills": jd.get("secondary_skills", []),
+                "location": jd.get("location", ""),
+                "budget": jd.get("budget", ""),
+                "number_of_positions": jd.get("number_of_positions", ""),
+                "work_mode": jd.get("work_mode", ""),
+                "created_at": jd.get("created_at", "")
+            })
+        
+        return {
+            "client_name": client["client_name"],
+            "job_descriptions": jd_list
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch job descriptions: {str(e)}")
+
+@app.put("/clients/{client_id}")
+def update_client(
+    client_id: str,
+    client_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update client name with audit logging"""
+    try:
+        from bson import ObjectId
+        client_oid = ObjectId(client_id)
+
+        # Fetch old client for audit
+        old_client = db.clients.find_one({
+            "_id": client_oid,
+            "company_id": current_user["company_id"],
+            "is_deleted": False
+        })
+        if not old_client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        # Prepare update values
+        new_name = client_data.get("name", old_client["client_name"])
+
+        # Update client name
+        result = db.clients.update_one(
+            {"_id": client_oid},
+            {"$set": {"client_name": new_name, "updated_at": datetime.now()}}
+        )
+        if result.modified_count == 0:
+            raise HTTPException(status_code=400, detail="Failed to update client")
+
+        # Fetch new client data for audit
+        new_client = db.clients.find_one({"_id": client_oid})
+
+        # Log audit trail (only changed data)
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="update_client",
+            target_table="clients",
+            target_id=str(client_oid),
+            old_data={"client_name": old_client.get("client_name")},
+            new_data={"client_name": new_client.get("client_name")},
+            screen="company"  
+        )
+
+        return {"message": "Client updated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update client: {str(e)}")
+
+
+
+@app.patch("/clients/{client_id}/status")
+def update_client_status(
+    client_id: str, 
+    status: str = Query(..., description="Status to set"), 
+    current_user: dict = Depends(get_current_user)
+):
+    """Update client status with audit logging"""
+    if status not in ["active", "inactive"]:
+        raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
+    
+    try:
+        from bson import ObjectId
+        client_oid = ObjectId(client_id)
+        
+        # Fetch old client for audit
+        old_client = db.clients.find_one({
+            "_id": client_oid,
+            "company_id": current_user["company_id"],
+            "is_deleted": False
+        })
+        
+        if not old_client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
+        old_status = old_client.get("status")
+        
+        # Update client status
+        result = db.clients.update_one(
+            {"_id": client_oid},
+            {"$set": {"status": status}}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=400, detail="Failed to update client status")
+        
+        # Fetch new client data for audit
+        new_client = db.clients.find_one({"_id": client_oid})
+        new_status = new_client.get("status")
+
+        # Log audit trail (only changed field)
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="update_client_status",
+            target_table="clients",
+            target_id=str(client_oid),
+            old_data={"status": old_status},
+            new_data={"status": new_status},
+            screen="company"  
+        )
+        
+        return {"message": f"Client status updated to {status}"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update client status: {str(e)}")
+
+
+from fastapi import FastAPI, Body, Depends, HTTPException
+from bson import ObjectId
+
+@app.put("/job-descriptions/{jd_id}")
+def update_job_description_endpoint(
+    jd_id: str,
+    jd_data: dict = Body(...),  # Incoming update fields
+    current_user: dict = Depends(get_current_user)
+):
+    from bson import ObjectId
+    jd_oid = ObjectId(jd_id)
+
+    # Fetch old JD for audit
+    old_jd = db.job_descriptions.find_one(
+        {"_id": jd_oid, "company_id": current_user["company_id"], "is_deleted": False}
+    )
+    if not old_jd:
+        raise HTTPException(status_code=404, detail="Job description not found")
+
+    # Update JD
+    result = db.job_descriptions.update_one(
+        {"_id": jd_oid, "company_id": current_user["company_id"]},
+        {"$set": jd_data}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Nothing updated")
+
+    # Fetch new JD after update
+    new_jd = db.job_descriptions.find_one({"_id": jd_oid})
+
+    # Determine only changed fields
+    changed_fields = {}
+    for k, new_value in jd_data.items():
+        old_value = old_jd.get(k)
+        if old_value != new_value:
+            changed_fields[k] = {"old": old_value, "new": new_value}
+
+    # If no actual field differences, skip audit
+    if not changed_fields:
+        return {"message": "No actual changes detected"}
+
+    # Log only changed fields
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="update_job_description",
+        target_table="job_descriptions",
+        target_id=str(jd_oid),
+        old_data={k: v["old"] for k, v in changed_fields.items()},
+        new_data={k: v["new"] for k, v in changed_fields.items()},
+        screen="company"  
+    )
+
+    return {
+        "message": "Job description updated successfully",
+        "changed_fields": changed_fields
+    }
+
+
+# --------------------
+# Dashboard & Usage Routes
+# --------------------
+@app.get("/dashboard")
+def get_dashboard_data(current_user: dict = Depends(get_current_user)):
+    companies_count = col_companies.count_documents({"is_deleted": False, "status": "active"})
+    users_count = col_company_users.count_documents({"is_deleted": False, "status": "active"})
+    inactive_companies_count = col_companies.count_documents({"is_deleted": False, "status": "inactive"})
+    inactive_users_count = col_company_users.count_documents({"is_deleted": False, "status": "inactive"})
+    
+    # Get total usage statistics
+    total_limit = 0
+    total_usage = 0
+    for company in col_companies.find({"is_deleted": False, "status": "active"}, {"id": 1, "monthly_page_limit": 1}):
+        total_limit += company.get("monthly_page_limit", 1000)
+        total_usage += get_current_month_usage(company["id"])
+    
+    return {
+        "companies_count": companies_count,
+        "users_count": users_count,
+        "inactive_companies_count": inactive_companies_count,
+        "inactive_users_count": inactive_users_count,
+        "total_page_limit": total_limit,
+        "total_current_usage": total_usage,
+        "total_usage_percentage": (total_usage / total_limit * 100) if total_limit > 0 else 0
+    }
+
+@app.get("/usage/stats")
+def get_my_usage_stats(current_user: dict = Depends(get_current_user)):
+    """Get usage statistics for the current user's company"""
+    return get_usage_stats(current_user["company_id"])
+
+@app.get("/usage/notifications")
+def get_usage_notifications(current_user: dict = Depends(get_current_user)):
+    """Get usage notifications for the company"""
+    usage_stats = get_usage_stats(current_user["company_id"])
+    notifications = []
+    
+    if usage_stats["usage_percentage"] >= 90:
+        notifications.append({
+            "type": "warning",
+            "message": f"High usage alert: {usage_stats['current_usage']}/{usage_stats['page_limit']} pages used ({usage_stats['usage_percentage']:.1f}%)"
+        })
+    elif usage_stats["usage_percentage"] >= 75:
+        notifications.append({
+            "type": "info",
+            "message": f"Usage alert: {usage_stats['current_usage']}/{usage_stats['page_limit']} pages used ({usage_stats['usage_percentage']:.1f}%)"
+        })
+    
+    return notifications
+
+@app.post("/usage/reset/{company_id}")
+def reset_company_usage(company_id: str, current_user: dict = Depends(require_super_admin)):
+    """Reset company's usage for testing (admin only)"""
+    current_month = datetime.now().strftime("%Y-%m")
+
+    # Fetch old usage for audit
+    old_usage = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+    if not old_usage:
+        raise HTTPException(status_code=404, detail="Usage record not found")
+
+    # Perform reset
+    new_usage_data = {"page_count": 0, "last_updated": datetime.now()}
+    result = db.company_usage.update_one(
+        {"company_id": company_id, "month": current_month},
+        {"$set": new_usage_data}
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to reset usage")
+
+    # Fetch new usage for audit
+    new_usage = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+
+    # Detect changed fields only
+    changed_fields = {}
+    for k, new_value in new_usage_data.items():
+        old_value = old_usage.get(k)
+        if old_value != new_value:
+            changed_fields[k] = {"old": old_value, "new": new_value}
+
+    # Skip audit if no change detected
+    if not changed_fields:
+        return {"message": "No changes detected"}
+
+    # Log only modified fields
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="reset_company_usage",
+        target_table="company_usage",
+        target_id=f"{company_id}-{current_month}",
+        old_data={k: v["old"] for k, v in changed_fields.items()},
+        new_data={k: v["new"] for k, v in changed_fields.items()},
+        screen="company"  
+    )
+
+    return {
+        "message": "Usage reset successfully",
+        "changed_fields": changed_fields
+    }
+
+
+# --------------------
+# Deleted Items Routes
+# --------------------
+@app.get("/deleted/companies")
+def get_deleted_companies_endpoint(_: str = Depends(require_super_admin)):
+    return list(col_companies.find({"is_deleted": True}, {"_id": 0}))
+
+@app.get("/deleted/users")
+def get_deleted_users_endpoint(company_id: Optional[str] = None, _: str = Depends(require_super_admin)):
+    query = {"is_deleted": True}
+    if company_id:
+        query["company_id"] = company_id
+    return list(col_company_users.find(query, {"_id": 0}))
+
+@app.get("/deleted/analysis")
+def get_deleted_analyses_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != "company_admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return list(db.analysis_history.find({
+        "company_id": current_user["company_id"],
+        "is_deleted": True
+    }, {"file_content": 0}))
+
+# --------------------
+# Health & Root Routes
+# --------------------
+
 
 @app.get("/")
 def root() -> Dict[str, Any]:
-    return {
-        "name": "TalentHive Resume Analyzer API",
-        "version": "1.0.0",
-        "endpoints": [
-            "GET /health",
-            "POST /analyze",
-            "GET /history",
-            "GET /clients",
-            "GET /clients/{client_name}/jds",
-            "GET /clients/{client_name}/jds/{jd_title}",
-            "PUT /clients/{client_name}/jds/{jd_title}",
-        ],
-    }
-
+    return {"message": "API is running"}
 
 @app.get("/ui")
 def render_ui(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+@app.get("/super-admin-dashboard", response_class=HTMLResponse)
+async def super_admin_dashboard(request: Request):
+    return templates.TemplateResponse("super-admin-dashboard.html", {"request": request})
+@app.get("/company-dashboard", response_class=HTMLResponse)
+async def company_dashboard(request: Request):
+    return templates.TemplateResponse("company-dashboard.html", {"request": request})
+@app.get("/user-dashboard", response_class=HTMLResponse)
+async def user_dashboard(request: Request):
+    return templates.TemplateResponse("user-dashboard.html", {"request": request})
+
+# --------------------
+# Startup Event
+# --------------------
+@app.on_event("startup")
+def on_startup():
+    _ensure_env_loaded()
+    # Initialize Supabase client (module import also initializes it)
+    os.makedirs("logos", exist_ok=True)
+    os.makedirs("logos/users", exist_ok=True)
+    try:
+        #initialize_supabase()
+        initialize_mongodb()
+        auto_reset_monthly_usage()
+    except Exception:
+        # Defer errors to first DB call
+        pass
+    # Initialize Gemini model once
+    try:
+        app.state.gemini_model = initialize_gemini()
+    except Exception as e:
+        app.state.gemini_model = None
+        print(f"Gemini not initialized: {e}")
+#-----country and state ----
+@app.get("/countries")
+def get_countries(_: str = Depends(get_current_user)):
+    """
+    ✅ Returns all countries
+    Accessible by any authenticated user
+    """
+    return list(db.countries.find({}, {"_id": 0}))
+
+
+@app.get("/countries/{country_id}/states")
+def get_states(country_id: str, _: str = Depends(get_current_user)):
+    """
+    ✅ Returns all states for a country
+    Accessible by any authenticated user
+    """
+    return list(db.states.find({"country_id": country_id}, {"_id": 0}))
+# --------------------
+# Bank Management Routes
+# --------------------
+@app.post("/banks", response_model=BankResponse)
+def create_bank(bank: BankCreate, current_user: dict = Depends(get_current_user)):
+    # Check if bank already exists
+    if col_banks.find_one({"bank_name": bank.bank_name, "is_deleted": False}):
+        raise HTTPException(status_code=400, detail="Bank name already exists")
+    
+    now_iso = datetime.now().isoformat()
+    bank_id = str(uuid.uuid4())
+    
+    bank_doc = {
+        "_id": bank_id,
+        "id": bank_id,
+        "bank_name": bank.bank_name,
+        "short_name": bank.short_name,
+        "ifsc_prefix": bank.ifsc_prefix,
+        "status": bank.status or "active",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "is_deleted": False
+    }
+
+    # Insert bank
+    col_banks.insert_one(bank_doc)
+
+    # ✅ Audit trail for creation
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="create_bank",
+        target_table="banks",
+        target_id=bank_id,
+        old_data=None,
+        new_data=bank_doc,
+        screen="super admin"  
+    )
+
+    return BankResponse(**bank_doc)
+
+
+@app.get("/banks")
+def get_banks(status: Optional[str] = None, _: str = Depends(get_current_user)):
+    query = {"is_deleted": False}
+    if status:
+        query["status"] = status
+        
+    items = []
+    for doc in col_banks.find(query, {"_id": 0}).sort("bank_name", 1):
+        items.append(doc)
+    return items
+
+@app.patch("/banks/{bank_id}", response_model=BankResponse)
+def update_bank(bank_id: str, bank: BankUpdate, current_user: dict = Depends(get_current_user)):
+    update_data = {k: v for k, v in bank.dict(exclude_unset=True).items() if v is not None}
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    # Add updated timestamp
+    update_data["updated_at"] = datetime.now().isoformat()
+    
+    # Fetch old data for audit
+    old_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    if not old_bank:
+        raise HTTPException(status_code=404, detail="Bank not found")
+    
+    # Update bank
+    updated = col_banks.find_one_and_update(
+        {"id": bank_id, "is_deleted": False},
+        {"$set": update_data},
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0}
+    )
+    
+    # Determine changed fields only
+    changed_fields_old = {}
+    changed_fields_new = {}
+    for k in update_data.keys():
+        old_value = old_bank.get(k)
+        new_value = updated.get(k)
+        if old_value != new_value:
+            changed_fields_old[k] = old_value
+            changed_fields_new[k] = new_value
+    
+    # Log audit only if something changed
+    if changed_fields_old:
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="update_bank",
+            target_table="banks",
+            target_id=bank_id,
+            old_data=changed_fields_old,
+            new_data=changed_fields_new,
+            screen="super admin"  
+        )
+    
+    return BankResponse(**updated)
+
+
+
+@app.patch("/banks/{bank_id}/status")
+def update_bank_status(
+    bank_id: str, 
+    status: str = Query(..., description="Status to set"), 
+    current_user: dict = Depends(get_current_user)
+):
+    if status not in ["active", "inactive"]:
+        raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
+
+    # Fetch old bank for audit
+    old_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    if not old_bank:
+        raise HTTPException(status_code=404, detail="Bank not found")
+
+    old_status = old_bank.get("status")
+
+    # Update status
+    result = col_banks.update_one(
+        {"id": bank_id, "is_deleted": False},
+        {"$set": {"status": status, "updated_at": datetime.now().isoformat()}}
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Bank not updated")
+
+    # Fetch new bank for audit
+    new_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    new_status = new_bank.get("status")
+
+    # Log audit only if changed
+    if old_status != new_status:
+        log_audit_trail(
+            user_id=current_user.get("user_id"),
+            name=current_user.get("name"),
+            role=current_user.get("role"),
+            company_id=current_user.get("company_id"),
+            action="update_bank_status",
+            target_table="banks",
+            target_id=bank_id,
+            old_data={"status": old_status},
+            new_data={"status": new_status},
+            screen="super admin"  
+        )
+
+    return {"message": f"Bank status updated to {status}"}
+
+
+
+@app.delete("/banks/{bank_id}")
+def delete_bank(bank_id: str, current_user: dict = Depends(get_current_user)):
+    # Fetch old bank for audit
+    old_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    if not old_bank:
+        raise HTTPException(status_code=404, detail="Bank not found")
+
+    # Prepare updated fields
+    updated_fields = {
+        "is_deleted": True,
+        "status": "inactive",
+        "deleted_at": datetime.now().isoformat(),
+        "deleted_by": current_user.get("user_id")
+    }
+
+    # Soft delete the bank
+    result = col_banks.update_one(
+        {"id": bank_id, "is_deleted": False},
+        {"$set": updated_fields}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Bank not deleted")
+
+    # Fetch new bank for audit
+    new_bank = col_banks.find_one({"id": bank_id}, {"_id": 0})
+
+    # Log only changed fields
+    changed_old_data = {k: old_bank.get(k) for k in updated_fields.keys()}
+    changed_new_data = {k: new_bank.get(k) for k in updated_fields.keys()}
+
+    log_audit_trail(
+        user_id=current_user.get("user_id"),
+        name=current_user.get("name"),
+        role=current_user.get("role"),
+        company_id=current_user.get("company_id"),
+        action="delete_bank",
+        target_table="banks",
+        target_id=bank_id,
+        old_data=changed_old_data,
+        new_data=changed_new_data,
+        screen="super admin"  
+        )
+
+    return {"message": "Bank deleted"}
+
 
 
 # --------------------
@@ -783,4 +3375,6 @@ def render_ui(request: Request):
 # --------------------
 if __name__ == "__main__":
     import uvicorn
+    #uvicorn.run(app, host="192.168.1.140", port=8000)
     uvicorn.run(app, host="127.0.0.1", port=8000)
+

@@ -1,93 +1,59 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TalentHive Resume Analyzer</title>
-  <link rel="stylesheet" href="/static/ui.css" />
+    <title>Login System</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/index.css') }}">
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <img src="/static/logo.png" alt="Logo" class="logo" />
-      <div>
-        <h1>TalentHive Resume Analyzer</h1>
-        <p class="subheader">AI-powered resume analysis for better hiring decisions</p>
-      </div>
+
+<!-- Include Font Awesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+<div class="login-box">
+    <div class="logo">🔐 Login</div>
+    <h2>Resume Parser AI</h2>
+    <p style="color: #666; margin-bottom: 30px;">Please login to your account</p>
+    
+    <input type="email" id="email" placeholder="Email Address">
+    
+    <div style="position:relative;">
+        <input type="password" id="password" placeholder="Password" style="padding-right:35px;">
+        <i class="fa-solid fa-eye" id="toggleLoginPw" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); cursor:pointer;"></i>
     </div>
-
-    <div class="tabs">
-      <button class="tab active" data-tab="analyzer">📄 Resume Analyzer</button>
-      <button class="tab" data-tab="history">📚 Analysis History</button>
+    
+    <button onclick="login()">Login</button>
+    <div style="margin-top:10px;">
+        <a href="#" onclick="openResetModal()" style="color:#667eea;text-decoration:none;">Forgot password?</a>
     </div>
+    
+    <div id="message"></div>
+    <div class="loading" id="loading">Signing in...</div>
+</div>
 
-    <div id="tab-analyzer" class="tab-content active">
-      <div class="grid">
-        <div class="card">
-          <div class="drag-drop">📤 Upload Resume</div>
-          <input type="file" id="resume" accept=".pdf,.doc,.docx" />
-          <div class="hint">Supported: PDF, DOC, DOCX</div>
-        </div>
 
-        <div class="card">
-          <div class="job-title">🎯 Job Description</div>
-          <div class="row">
-            <label>Client Source</label>
-            <div class="radio-group">
-              <label><input type="radio" name="client_mode" value="new" checked /> New Client</label>
-              <label><input type="radio" name="client_mode" value="existing" /> Existing Client</label>
-            </div>
-          </div>
-
-          <div id="existing-client" class="section hidden">
-            <div class="row">
-              <label>Select Client</label>
-              <select id="existing_client_select"><option>Loading...</option></select>
-            </div>
-            <div class="row">
-              <label>Select Job Description Name</label>
-              <select id="jd_select"><option>Choose One</option></select>
-            </div>
-            <div id="jd_details" class="jd-details hidden">
-              <div class="jd-controls">
-                <button id="jd_edit_btn" class="secondary">✏️ Edit</button>
-                <button id="jd_save_btn" class="primary hidden">Save</button>
-                <button id="jd_cancel_btn" class="secondary hidden">Cancel</button>
-              </div>
-              <div class="row"><label>Required Experience</label><input id="jd_req_exp" disabled /></div>
-              <div class="row"><label>Primary Skills</label><textarea id="jd_primary" disabled></textarea></div>
-              <div class="row"><label>Secondary Skills</label><textarea id="jd_secondary" disabled></textarea></div>
-            </div>
-          </div>
-
-          <div id="new-client" class="section">
-            <div class="row required"><label>Client Name</label><input type="text" id="client_name" placeholder="Zoho" /></div>
-            <div class="row required"><label>Job Description Name</label><input type="text" id="jd_title" placeholder="Senior Python Developer" /></div>
-            <div class="row required"><label>Required Experience</label><input type="text" id="required_experience" placeholder="e.g., 3-5, 4+, 5 +" /></div>
-            <div class="row required"><label>Primary Skills (Must Have)</label><textarea id="primary_skills" placeholder="Python, Java, SQL"></textarea></div>
-            <div class="row"><label>Secondary Skills (Nice to Have)</label><textarea id="secondary_skills" placeholder="Docker, AWS, CI/CD"></textarea></div>
-          </div>
-        </div>
+<!-- Password Reset Modal -->
+<div id="resetModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5);">
+    <div style="background:#fff; max-width:420px; margin:5% auto; border-radius:10px; padding:20px; position:relative;">
+      <span style="position:absolute; right:12px; top:8px; cursor:pointer; font-size:20px;" onclick="closeResetModal()">&times;</span>
+      <h3 style="margin-bottom:10px;">Reset Password</h3>
+      <div style="font-size:14px; color:#666; margin-bottom:10px;">Enter your email and new password. You will receive a confirmation link that expires in 1 minute.</div>
+      <input type="email" id="resetEmail" placeholder="Email Address" style="width:100%; padding:10px; margin:8px 0; border:1px solid #ccc; border-radius:6px;" />
+      
+      <div style="position:relative;">
+          <input type="password" id="resetNewPassword" placeholder="New Password (min 6 chars)" style="width:100%; padding:10px; margin:8px 0; border:1px solid #ccc; border-radius:6px; padding-right:35px;" />
+          <i class="fa-solid fa-eye" id="toggleResetPw1" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); cursor:pointer;"></i>
       </div>
-
-      <div class="center">
-        <button id="analyze_btn" class="primary">✨ Analyze Resume</button>
+      
+      <div style="position:relative;">
+          <input type="password" id="resetConfirmPassword" placeholder="Confirm New Password" style="width:100%; padding:10px; margin:8px 0; border:1px solid #ccc; border-radius:6px; padding-right:35px;" />
+          <i class="fa-solid fa-eye" id="toggleResetPw2" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); cursor:pointer;"></i>
       </div>
-
-      <div id="analysis_container" class="analysis hidden"></div>
+      
+      <button onclick="requestReset()" style="width:100%; padding:12px; border:none; background:#667eea; color:#fff; border-radius:8px; cursor:pointer;">Send Reset Link</button>
+      <div id="resetMsg" style="margin-top:10px; font-size:14px;"></div>
     </div>
+</div>
+<script src="{{ url_for('static', path='/js/index.js') }}"></script>
 
-    <div id="tab-history" class="tab-content">
-      <div class="row search-row">
-        <label>Search</label>
-        <input type="text" id="history_search" placeholder="Type name, email, client or JD..." />
-      </div>
-      <div id="history_table" class="table"></div>
-    </div>
-  </div>
-
-  <script src="/static/ui.js"></script>
 </body>
-<!-- This is a minimal UI; your Streamlit app remains available separately. -->
 </html>
-

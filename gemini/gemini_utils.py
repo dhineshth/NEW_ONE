@@ -6,14 +6,27 @@ from typing import Dict, Any, List
 from datetime import datetime
 from parsing.parsing_utils import extract_email
 
-def initialize_gemini():
+# def initialize_gemini():
+#     try:
+#         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+#         return genai.GenerativeModel('gemini-2.0-flash') #pro , #flash, #gemini-1.5-flash-latest
+#     except Exception as e:
+#         raise Exception(f"Gemini initialization failed: {str(e)}")
+def initialize_gemini(api_key: str = None, model_name: str = "gemini-2.0-flash"):
     try:
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        return genai.GenerativeModel('gemini-2.0-flash') #pro , #flash, #gemini-1.5-flash-latest
+        # Use provided API key or fall back to environment variable
+        final_api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not final_api_key:
+            raise Exception("No Gemini API key provided and GEMINI_API_KEY environment variable not set")
+        
+        genai.configure(api_key=final_api_key)
+        return genai.GenerativeModel(model_name)
     except Exception as e:
         raise Exception(f"Gemini initialization failed: {str(e)}")
 
-def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], model) -> Dict[str, Any]:
+
+
+def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], model, api_key: str = None) -> Dict[str, Any]:
     today = datetime.now().strftime("%m/%Y")
 
     prompt = f"""
@@ -59,12 +72,34 @@ def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], mode
     
     Rules for Experience Analysis:
     - Normalize all dates to MM/YYYY format
-    - Handle "Present" as {today}
+    - Handle "Present" or "Current" as {today}
     - Exclude internships from total experience calculation
     - For total_experience, sum all duration_length values from non-internship positions
-    - If multiple "Present" roles, mark as "Present (Current)"
-    - If any position is missing dates, include in analysis but mark appropriately
-    - If no companies found, clearly indicate this is a fresher profile
+    - If multiple "Present" roles, mark the latest one as "Present (Current)"
+    - If any position is missing start or end dates, include in analysis but mark as "Dates not available"
+    - If no companies found, clearly indicate this is a "Fresher Profile"
+    - When displaying experience details, number them sequentially starting from 1
+    - Maintain accurate duration values in years and months format
+    - Always display durations in the format: "X years Y months" or "Y months" if less than a year
+
+Continuous and Overlap Month Handling Rules:
+    - If the end month of one job is the same as the start month of the next job,
+      then add one extra month to the previous role’s duration_length 
+      (to represent continuous employment without gap)
+    - If multiple jobs fall within the same start or end month (overlapping or concurrent),
+      use normal duration calculation (no extra month added)
+    - Example behavior:
+        * Continuous sequence (no gap): 
+              07/2021 – 10/2025 → 4 years 4 months
+              10/2020 – 06/2021 → 0 years 9 months
+              03/2018 – 09/2020 → 2 years 7 months
+              06/2015 – 02/2018 → 2 years 8 months
+        * Overlapping same month sequence:
+              07/2021 – 10/2025 → 4 years 3 months
+              10/2020 – 07/2021 → 0 years 9 months
+              03/2018 – 10/2020 → 2 years 7 months
+              06/2015 – 03/2018 → 2 years 9 months
+
     
     Required Experience from JD: {jd_data.get('required_experience', 'Not specified')}
     Min Experience: {jd_data.get('min_experience', 0)} years
@@ -151,14 +186,6 @@ def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], mode
                 result["profile_feedback"]["has_email"] = True
                 result["profile_feedback"]["candidate_email"] = email
 
-        # Determine freelancer status from positions if not set
-        # if not result["profile_feedback"].get("freelancer_status", False):
-        #     if "experience_analysis" in result:
-        #         positions = result["experience_analysis"].get("positions", [])
-        #         for position in positions:
-        #             if position.get("employment_type", "").lower() in ["freelance", "contract"]:
-        #                 result["profile_feedback"]["freelancer_status"] = True
-        #                 break
         if not result["profile_feedback"].get("freelancer_status", False):
             if "experience_analysis" in result:
                 positions = result["experience_analysis"].get("positions", [])
@@ -182,10 +209,10 @@ def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], mode
         else:
             summary_additions.append("LinkedIn missing")
             
-        if profile_feedback.get("has_email", False):
-            summary_additions.append("Contact email available")
-        else:
-            summary_additions.append("Contact email missing")
+        # if profile_feedback.get("has_email", False):
+        #     summary_additions.append("Contact email available")
+        # else:
+        #     summary_additions.append("Contact email missing")
             
         if summary_additions:
             if "summary" in result:
@@ -199,6 +226,8 @@ def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], mode
             positions = exp_analysis.get("positions", [])
             missing_dates_count = sum(1 for p in positions if p.get("duration_missing", False))
             exp_analysis["positions_with_missing_dates"] = missing_dates_count
+            exp_analysis["required_experience"] = jd_data.get("required_experience", "Not specified")
+            
 
             if not positions:
                 exp_analysis["is_fresher"] = True
@@ -235,7 +264,7 @@ def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], mode
                     total_exp_str = f"{years} years {months} months" if months else f"{years} years"
                     exp_analysis["total_experience"] = total_exp_str
                 else:
-                    exp_analysis["total_experience"] = "Unable to calculate (missing dates)"
+                    exp_analysis["total_experience"] = "Unable to Calculate (Missing Duration)"
 
                 # Experience Match Logic
                 required_exp_str = jd_data.get("required_experience", "").strip()
@@ -262,7 +291,6 @@ def analyze_resume_comprehensive(resume_text: str, jd_data: Dict[str, Any], mode
                     experience_match = False
 
                 exp_analysis["experience_match"] = experience_match
-                
 
             if missing_dates_count > 0:
                 if "suggestions" not in result:

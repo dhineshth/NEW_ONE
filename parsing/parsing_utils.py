@@ -27,6 +27,19 @@ def extract_text_from_docx(file_path: str) -> str:
         return docx2txt.process(file_path)
     except Exception as e:
         raise Exception(f"Error extracting DOCX: {e}")
+    
+import win32com.client
+import os
+
+def convert_doc_to_docx(doc_path: str) -> str:
+    docx_path = os.path.splitext(doc_path)[0] + ".docx"
+    word = win32com.client.Dispatch("Word.Application")
+    word.Visible = False
+    doc = word.Documents.Open(doc_path)
+    doc.SaveAs(docx_path, FileFormat=16)  # 16 = wdFormatDocumentDefault (.docx)
+    doc.Close()
+    word.Quit()
+    return docx_path
 
 def parse_resume(file_path: str, parser: LlamaParse) -> str:
     """
@@ -48,7 +61,9 @@ def extract_text(file_path: str) -> str:
         return extract_text_from_pdf(file_path)
     elif ext == ".docx":
         return extract_text_from_docx(file_path)
-    # elif ext == ".doc":
-    #     return extract_text_from_doc(file_path)
+    elif ext == ".doc":
+        # convert .doc → .docx first
+        docx_path = convert_doc_to_docx(file_path)
+        return extract_text_from_docx(docx_path)
     else:
         raise Exception("Unsupported file type.")
