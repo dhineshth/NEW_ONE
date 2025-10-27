@@ -86,6 +86,7 @@ window.onload = function() {
     loadDashboardData();
     loadCompaniesForSelect();
     loadCountries();
+    showFinancialYearGraph();
 };
 
 /**
@@ -182,7 +183,7 @@ async function loadAuditLogs() {
 
     const companyFilter = document.getElementById('companyFilter');
     companyFilter.style.display = 'block';
-    companyFilter.innerHTML = `<option value="">All Companies</option>`; // default option
+    companyFilter.innerHTML = `<option value="">All Logs</option>`; // default option
 
     try {
         // 🔹 Fetch company list
@@ -333,7 +334,7 @@ function displayAuditLogs(logs, companyNameMap = {}) {
         responsive: true,
         pageLength: 10,
         lengthMenu: [10, 25, 50, 100],
-        order: [[6, 'asc']], // sort by timestamp
+        order: [[6, 'desc']], // sort by timestamp
         language: {
             search: "Search logs:",
             lengthMenu: "Show _MENU_ logs per page",
@@ -349,21 +350,243 @@ function displayAuditLogs(logs, companyNameMap = {}) {
 /**
  * Show main dashboard view
  */
-function showDashboard() {
+// function showDashboard() {
+//     document.getElementById('statsCards').style.display = 'flex';
+//     updateActiveNavLink('dashboard');
+//     document.getElementById('dataTitle').textContent = 'Recent Data';
+//     document.getElementById('dataFilterDropdown').style.display = 'block';
+//     document.getElementById('statusFilter').style.display = 'none';
+//     document.getElementById('companyFilter').style.display = 'none';
+//     document.getElementById('roleFilter').style.display = 'none';
+//     document.getElementById('dataContent').innerHTML = `
+//         <div class="text-center py-4">
+//             <i class="fas fa-tachometer-alt fa-3x text-muted mb-3"></i>
+//             <h5>Dashboard Overview</h5>
+//             <p class="text-muted">Select an option from the sidebar to view specific data</p>
+//         </div>
+//     `;
+// }
+// Add this function to create the financial year graph
+// Add this function to create the financial year graph
+function showFinancialYearGraph() {
     document.getElementById('statsCards').style.display = 'flex';
     updateActiveNavLink('dashboard');
-    document.getElementById('dataTitle').textContent = 'Recent Data';
-    document.getElementById('dataFilterDropdown').style.display = 'block';
+    document.getElementById('dataTitle').textContent = 'Companies Data';
+    document.getElementById('dataFilterDropdown').style.display = 'none';
     document.getElementById('statusFilter').style.display = 'none';
     document.getElementById('companyFilter').style.display = 'none';
     document.getElementById('roleFilter').style.display = 'none';
-    document.getElementById('dataContent').innerHTML = `
-        <div class="text-center py-4">
-            <i class="fas fa-tachometer-alt fa-3x text-muted mb-3"></i>
-            <h5>Dashboard Overview</h5>
-            <p class="text-muted">Select an option from the sidebar to view specific data</p>
+
+    const content = document.getElementById("dataContent");
+    content.innerHTML = `
+        <div class="card dashboard-card">
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+     
+                        <p class="text-muted">Monthly company registrations for selected financial year</p>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <div class="input-group" style="max-width: 300px; margin-left: auto;">
+                            <label class="input-group-text" for="financialYearSelect">
+                                <i class="fas fa-calendar-alt"></i>
+                            </label>
+                            <select class="form-select" id="financialYearSelect" onchange="loadFinancialYearData()">
+                                <!-- Options will be populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container" style="position: relative; height: 400px;">
+                    <canvas id="companyCreationChart"></canvas>
+                </div>
+            </div>
         </div>
     `;
+    
+    // Initialize financial year dropdown and load data
+    initializeFinancialYearDropdown();
+    loadFinancialYearData();
+}
+
+// Initialize financial year dropdown
+function initializeFinancialYearDropdown() {
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+    
+    // Determine current financial year (April to March)
+    let currentFY = currentYear;
+    if (currentMonth >= 4) { // April to December
+        currentFY = currentYear;
+    } else { // January to March
+        currentFY = currentYear - 1;
+    }
+    
+    const select = document.getElementById('financialYearSelect');
+    select.innerHTML = '';
+    
+    // Add options for current and previous 4 financial years
+    for (let i = 4; i >= 0; i--) {
+        const fy = currentFY - i;
+        const fyText = `${fy}-${fy + 1}`;
+        const option = document.createElement('option');
+        option.value = fy;
+        option.textContent = `FY ${fyText}`;
+        if (fy === currentFY) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    }
+}
+
+// Load financial year data
+async function loadFinancialYearData() {
+    const selectedFY = parseInt(document.getElementById('financialYearSelect').value);
+    
+    try {
+        // Show loading state
+        const canvas = document.getElementById('companyCreationChart');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Fetch all companies data
+        const response = await apiFetch(`${API_BASE_URL}/companies`, {
+            headers: {
+                "X-User-Role": "super_admin"
+            }
+        });
+        
+        if (response.ok) {
+            const companies = await response.json();
+            processFinancialYearData(companies, selectedFY);
+        } else {
+            throw new Error('Failed to fetch companies data');
+        }
+    } catch (error) {
+        console.error('Error loading financial year data:', error);
+        showMessage('Error loading company creation trends', 'error');
+    }
+}
+
+// Process financial year data and create chart
+function processFinancialYearData(companies, financialYear) {
+    // Define financial year months (April to March)
+    const fyMonths = [
+        'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 
+        'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'
+    ];
+    
+    // Initialize monthly counts
+    const monthlyCounts = {};
+    fyMonths.forEach(month => {
+        monthlyCounts[month] = 0;
+    });
+    
+    // Filter and count companies for the selected financial year
+    companies.forEach(company => {
+        if (company.created_at) {
+            const createdDate = new Date(company.created_at);
+            const createdYear = createdDate.getFullYear();
+            const createdMonth = createdDate.getMonth() + 1;
+            
+            // Determine financial year for the creation date
+            let companyFY;
+            if (createdMonth >= 4) { // April to December
+                companyFY = createdYear;
+            } else { // January to March
+                companyFY = createdYear - 1;
+            }
+            
+            // If company was created in the selected financial year
+            if (companyFY === financialYear) {
+                // Map calendar month to financial year month
+                let fyMonthIndex;
+                if (createdMonth >= 4) {
+                    fyMonthIndex = createdMonth - 4;
+                } else {
+                    fyMonthIndex = createdMonth + 8;
+                }
+                
+                const fyMonth = fyMonths[fyMonthIndex];
+                monthlyCounts[fyMonth]++;
+            }
+        }
+    });
+    
+    // Create chart
+    createCompanyCreationChart(fyMonths, monthlyCounts, financialYear);
+}
+
+// Create the chart using Chart.js
+function createCompanyCreationChart(labels, monthlyCounts, financialYear) {
+    const ctx = document.getElementById('companyCreationChart').getContext('2d');
+    
+    // Destroy existing chart if it exists
+    if (window.companyCreationChartInstance) {
+        window.companyCreationChartInstance.destroy();
+    }
+    
+    const data = labels.map(label => monthlyCounts[label]);
+    
+    window.companyCreationChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: `Company Registrations - FY ${financialYear}-${financialYear + 1}`,
+                data: data,
+                backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1,
+                borderRadius: 4,
+                hoverBackgroundColor: 'rgba(54, 162, 235, 0.8)'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Number of Companies'
+                    },
+                    ticks: {
+                        stepSize: 1
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Financial Year Months'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Companies: ${context.parsed.y}`;
+                        }
+                    }
+                }
+            },
+            animation: {
+                duration: 1000,
+                easing: 'easeInOutQuart'
+            }
+        }
+    });
+}
+
+// Update the showDashboard function to show the graph by default
+function showDashboard() {
+    showFinancialYearGraph();
 }
 
 // ================================
@@ -393,25 +616,28 @@ async function loadCountries() {
             // Add countries to dropdowns
             countries.forEach(country => {
                 const option = document.createElement("option");
-                option.value = country.id;
+                option.value = country.name; // Store name as value
                 option.textContent = country.name;
                 countrySelect.appendChild(option);
                 
                 if (editCountrySelect) {
                     const editOption = document.createElement("option");
-                    editOption.value = country.id;
+                    editOption.value = country.name;
                     editOption.textContent = country.name;
                     editCountrySelect.appendChild(editOption);
                 }
             });
             
             // Set default to India
-            countrySelect.value = "in";
-            if (editCountrySelect) editCountrySelect.value = "in";
-            
-            // Load states for India
-            loadStates("in");
-            if (editCountrySelect) loadEditStates("in");
+            countrySelect.value = "India";
+            if (editCountrySelect) editCountrySelect.value = "India";
+
+            // Load states for India by resolving name to ID
+            const indiaObj = countries.find(c => c.name === "India");
+            if (indiaObj) {
+                loadStates(indiaObj.id);
+                if (editCountrySelect) loadEditStates(indiaObj.id);
+            }
             
             // Load active banks for dropdowns
             loadActiveBanks();
@@ -424,24 +650,24 @@ async function loadCountries() {
 /**
  * Load states for create form
  */
-async function loadStates(countryId) {
-    if (!countryId) return;
-    
+async function loadStatesByCountryName(countryName) {
+    if (!countryName) return;
     try {
-        const response = await apiFetch(`${API_BASE_URL}/countries/${countryId}/states`, {
-            headers: {
-                "X-User-Role": "super_admin"
-            }
+        const countriesResponse = await apiFetch(`${API_BASE_URL}/countries`, {
+            headers: { "X-User-Role": "super_admin" }
         });
-        
+        if (!countriesResponse.ok) return;
+        const countries = await countriesResponse.json();
+        const countryObj = countries.find(c => c.name === countryName);
+        if (!countryObj) return;
+        const countryId = countryObj.id;
+        const response = await apiFetch(`${API_BASE_URL}/countries/${countryId}/states`, {
+            headers: { "X-User-Role": "super_admin" }
+        });
         if (response.ok) {
             const states = await response.json();
             const stateSelect = document.getElementById("companyState");
-            
-            // Clear existing options
             stateSelect.innerHTML = '<option value="">Select State</option>';
-            
-            // Add states to dropdown
             states.forEach(state => {
                 const option = document.createElement("option");
                 option.value = state.name;
@@ -454,27 +680,56 @@ async function loadStates(countryId) {
     }
 }
 
+// For backward compatibility, keep loadStates as a wrapper
+async function loadStates(countryOrName) {
+    // If it's a known country ID, call as before, else treat as name
+    if (!countryOrName) return;
+    if (countryOrName.length <= 3) { // likely an ID
+        // old logic
+        try {
+            const response = await apiFetch(`${API_BASE_URL}/countries/${countryOrName}/states`, {
+                headers: { "X-User-Role": "super_admin" }
+            });
+            if (response.ok) {
+                const states = await response.json();
+                const stateSelect = document.getElementById("companyState");
+                stateSelect.innerHTML = '<option value="">Select State</option>';
+                states.forEach(state => {
+                    const option = document.createElement("option");
+                    option.value = state.name;
+                    option.textContent = state.name;
+                    stateSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error("Error loading states:", error);
+        }
+    } else {
+        await loadStatesByCountryName(countryOrName);
+    }
+}
+
 /**
  * Load states for edit form
  */
-async function loadEditStates(countryId) {
-    if (!countryId) return;
-    
+async function loadEditStatesByCountryName(countryName) {
+    if (!countryName) return;
     try {
-        const response = await apiFetch(`${API_BASE_URL}/countries/${countryId}/states`, {
-            headers: {
-                "X-User-Role": "super_admin"
-            }
+        const countriesResponse = await apiFetch(`${API_BASE_URL}/countries`, {
+            headers: { "X-User-Role": "super_admin" }
         });
-        
+        if (!countriesResponse.ok) return;
+        const countries = await countriesResponse.json();
+        const countryObj = countries.find(c => c.name === countryName);
+        if (!countryObj) return;
+        const countryId = countryObj.id;
+        const response = await apiFetch(`${API_BASE_URL}/countries/${countryId}/states`, {
+            headers: { "X-User-Role": "super_admin" }
+        });
         if (response.ok) {
             const states = await response.json();
             const stateSelect = document.getElementById("editCompanyState");
-            
-            // Clear existing options
             stateSelect.innerHTML = '<option value="">Select State</option>';
-            
-            // Add states to dropdown
             states.forEach(state => {
                 const option = document.createElement("option");
                 option.value = state.name;
@@ -484,6 +739,33 @@ async function loadEditStates(countryId) {
         }
     } catch (error) {
         console.error("Error loading states:", error);
+    }
+}
+
+// For backward compatibility, keep loadEditStates as a wrapper
+async function loadEditStates(countryOrName) {
+    if (!countryOrName) return;
+    if (countryOrName.length <= 3) {
+        try {
+            const response = await apiFetch(`${API_BASE_URL}/countries/${countryOrName}/states`, {
+                headers: { "X-User-Role": "super_admin" }
+            });
+            if (response.ok) {
+                const states = await response.json();
+                const stateSelect = document.getElementById("editCompanyState");
+                stateSelect.innerHTML = '<option value="">Select State</option>';
+                states.forEach(state => {
+                    const option = document.createElement("option");
+                    option.value = state.name;
+                    option.textContent = state.name;
+                    stateSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error("Error loading states:", error);
+        }
+    } else {
+        await loadEditStatesByCountryName(countryOrName);
     }
 }
 
@@ -1789,7 +2071,7 @@ function openEditCompanyModal(company) {
     document.getElementById("editCompanyName").value = company.name || "";
     document.getElementById("editCompanyLegalName").value = company.legal_name || "";
     document.getElementById("editRegisteredAddress").value = company.registered_address || "";
-    document.getElementById("editCompanyCountry").value = "in"; // Default to India
+    document.getElementById("editCompanyCountry").value = company.country || "";//"in"; // Default to India
     document.getElementById("editCompanyState").value = company.state || "";
     document.getElementById("editCompanyCity").value = company.city || "";
     document.getElementById("editCompanyPincode").value = company.pincode || "";
@@ -3512,19 +3794,20 @@ function openAmountHistoryModal(companyId, history) {
 // ================================
 
 /**
- * Load and display banks
+ * Load banks with optional status filter
  */
-async function loadBanks() {
+async function loadBanks(status = 'all') {
     document.getElementById('statsCards').style.display = 'none';
     updateActiveNavLink('banks');
-    document.getElementById('dataTitle').textContent = '';
-    
-    // Hide filter elements
-    document.getElementById('dataFilterDropdown').style.display = 'none';
-    document.getElementById('statusFilter').style.display = 'none';
+    document.getElementById('dataTitle').textContent = 'Banks';
+    document.getElementById('dataFilterDropdown').style.display = 'block';
+    document.getElementById('statusFilter').style.display = 'block';
     
     try {
-        const url = `${API_BASE_URL}/banks`;
+        let url = `${API_BASE_URL}/banks`;
+        if (status !== 'all') {
+            url += `?status=${status}`;
+        }
         
         const response = await apiFetch(url, {
             headers: {
@@ -3546,23 +3829,24 @@ async function loadBanks() {
  */
 function displayBanks(banks) {
     const content = document.getElementById("dataContent");
-    
-    let html = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">Banks</h5>
-            <button class="btn btn-primary" onclick="openBankModal()">
-                <i class="fas fa-plus"></i> Add New Bank
-            </button>
-        </div>
-    `;
-    
     if (banks.length === 0) {
-        html += `<p class="text-muted text-center py-4">No banks found</p>`;
-        content.innerHTML = html;
+        content.innerHTML = `
+            <div class="text-center py-4">
+                <p class="text-muted mb-3">No banks found</p>
+                <button class="btn btn-primary" onclick="openBankModal()">
+                    <i class="fas fa-plus me-2"></i>Add New Bank
+                </button>
+            </div>`;
         return;
     }
 
-    html += `
+    let html = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"></h5>
+            <button class="btn btn-primary" onclick="openBankModal()">
+                <i class="fas fa-plus me-1"></i>Add New Bank
+            </button>
+        </div>
         <div class="table-responsive">
             <table class="table data-table table-striped table-hover" id="banksTable">
                 <thead class="table-light">
@@ -3571,7 +3855,6 @@ function displayBanks(banks) {
                         <th>Bank Name</th>
                         <th>Short Name</th>
                         <th>IFSC Prefix</th>
-                        <th>Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -3579,6 +3862,11 @@ function displayBanks(banks) {
     `;
 
     banks.forEach((bank, index) => {
+        // Determine status icon and badge
+        const statusIconClass = bank.status === 'active' ? 'fas fa-toggle-on text-success' : 'fas fa-toggle-off text-danger';
+        const statusTitle = bank.status === 'active' ? 'Active' : 'Inactive';
+        const statusBadge = bank.status === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Inactive</span>';
+
         html += `
             <tr>
                 <td>${index + 1}</td>
@@ -3586,16 +3874,18 @@ function displayBanks(banks) {
                 <td>${bank.short_name}</td>
                 <td>${bank.ifsc_prefix}</td>
                 <td>
-                    <select class="form-select form-select-sm status-dropdown" data-bank-id="${bank.id}" data-current-status="${bank.status || 'active'}">
-                        <option value="active" ${(bank.status || 'active') === 'active' ? 'selected' : ''}>Active</option>
-                        <option value="inactive" ${(bank.status || 'active') === 'inactive' ? 'selected' : ''}>Inactive</option>
-                    </select>
-                </td>
-               
-                <td>
                     <div class="btn-group btn-group-sm" role="group">
-                        <button class="btn btn-outline-primary" onclick='openEditBankModal(${JSON.stringify(bank)})'>
-                            <i class="fas fa-edit"></i> Edit
+                        <button class="btn btn-outline-primary" onclick='openEditBankModal(${JSON.stringify(bank)})' title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick='confirmDeleteBank("${bank.id}")' title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                        <button class="btn btn-outline-info" 
+                                onclick='toggleBankStatus("${bank.id}", "${bank.status}", this)' 
+                                title="${statusTitle}" 
+                                data-current-status="${bank.status}">
+                            <i class="${statusIconClass}"></i>
                         </button>
                     </div>
                 </td>
@@ -3605,17 +3895,17 @@ function displayBanks(banks) {
 
     html += "</tbody></table></div>";
     content.innerHTML = html;
-    
+
     // Initialize DataTable
     if ($.fn.DataTable.isDataTable('#banksTable')) {
         $('#banksTable').DataTable().destroy();
     }
     
-    const table = $('#banksTable').DataTable({
+    $('#banksTable').DataTable({
         responsive: true,
         pageLength: 10,
         lengthMenu: [10, 25, 50, 100],
-        order: [[1, 'asc']], // Order by Bank Name instead of S.No
+        order: [[1, 'asc']], // order by Bank Name
         language: {
             search: "Search banks:",
             lengthMenu: "Show _MENU_ banks per page",
@@ -3624,41 +3914,26 @@ function displayBanks(banks) {
             infoFiltered: "(filtered from _MAX_ total banks)"
         }
     });
-    
-    // Add event listeners for status dropdowns
-    // Use event delegation for DataTables
-    $('#banksTable').on('change', '.status-dropdown', function () {
-        const bankId = $(this).data('bank-id');
-        const currentStatus = $(this).data('current-status');
-        const newStatus = $(this).val();
-
-        if (currentStatus !== newStatus) {
-            confirmBankStatusChange(bankId, newStatus, this);
-        }
-    });
-
 }
 
 /**
- * Confirm bank status change
+ * Toggle bank status (active/inactive)
  */
-function confirmBankStatusChange(bankId, newStatus, dropdown) {
+function toggleBankStatus(bankId, currentStatus, button) {
+    // ✅ Get the CURRENT status from the button's data attribute, not the parameter
+    const actualCurrentStatus = button.getAttribute('data-current-status') || currentStatus;
+    const newStatus = actualCurrentStatus === 'active' ? 'inactive' : 'active';
     const statusText = newStatus === 'active' ? 'Active' : 'Inactive';
-    const action = newStatus === 'active' ? 'activate' : 'deactivate';
     
-    if (confirm(`Are you sure you want to ${action} this bank?`)) {
-        updateBankStatus(bankId, newStatus, dropdown);
-    } else {
-        // Reset dropdown to original value
-        const currentStatus = dropdown.getAttribute('data-current-status');
-        dropdown.value = currentStatus;
+    if (confirm(`Are you sure you want to change this bank's status to ${statusText}?`)) {
+        updateBankStatus(bankId, newStatus, button);
     }
 }
 
 /**
  * Update bank status via API
  */
-async function updateBankStatus(bankId, status, dropdown) {
+async function updateBankStatus(bankId, status, button) {
     try {
         const response = await apiFetch(`${API_BASE_URL}/banks/${bankId}/status?status=${status}`, {
             method: "PATCH",
@@ -3666,25 +3941,52 @@ async function updateBankStatus(bankId, status, dropdown) {
                 "X-User-Role": "super_admin"
             }
         });
-        
+
         if (response.ok) {
-            const statusText = status === 'active' ? 'Active' : 'Inactive';
-            showMessage(`Bank status updated to ${statusText}`, "success");
-            // Update the current status attribute
-            dropdown.setAttribute('data-current-status', status);
+            showMessage(`Bank status updated to ${status}`, "success");
+            
+            // ✅ Update the button icon immediately
+            const icon = button.querySelector('i');
+            if (status === 'active') {
+                icon.className = 'fas fa-toggle-on text-success';
+                icon.title = 'Active';
+                button.title = 'Active';
+            } else {
+                icon.className = 'fas fa-toggle-off text-danger';
+                icon.title = 'Inactive';
+                button.title = 'Inactive';
+            }
+            
+            // ✅ CRITICAL: Update the button's data attribute for future toggles
+            button.setAttribute('data-current-status', status);
+            
+            // ✅ Reload banks with current filter
+            loadBanks(currentStatusFilter);
             loadDashboardData();
         } else {
             const errorText = await response.text();
-            showMessage(errorText || `Failed to update bank status`, "error");
-            // Reset dropdown on error
-            const currentStatus = dropdown.getAttribute('data-current-status');
-            dropdown.value = currentStatus;
+            showMessage(errorText || "Failed to update bank status", "error");
         }
     } catch (error) {
-        showMessage(`Error updating bank status`, "error");
-        // Reset dropdown on error
-        const currentStatus = dropdown.getAttribute('data-current-status');
-        dropdown.value = currentStatus;
+        showMessage("Error updating bank status", "error");
+    }
+}
+
+/**
+ * Confirm and delete bank
+ */
+async function confirmDeleteBank(id) {
+    if (!confirm("Delete this bank? This cannot be undone.")) return;
+    const res = await apiFetch(`${API_BASE_URL}/banks/${id}`, {
+        method: "DELETE",
+        headers: { "X-User-Role": "super_admin" }
+    });
+    if (res.ok) {
+        showMessage("Bank deleted", "success");
+        loadBanks();
+    } else {
+        const t = await res.text();
+        showMessage(t || "Failed to delete bank", "error");
     }
 }
 
@@ -3759,7 +4061,7 @@ function openBankModal() {
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        
                             <button type="submit" class="btn btn-primary">Create Bank</button>
                         </div>
                     </form>
@@ -3822,7 +4124,7 @@ async function createBank() {
             showMessage("Bank created successfully", "success");
             const bsModal = bootstrap.Modal.getInstance(document.getElementById('bankModal'));
             bsModal.hide();
-            loadBanks(currentStatusFilter);
+            loadBanks();
         } else {
             const errorText = await response.text();
             showMessage(errorText || "Failed to create bank", "error");
@@ -3885,11 +4187,10 @@ function openEditBankModal(bank) {
                                         </div>
                                     </div>
                                 </div>
-                                
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        
                             <button type="submit" class="btn btn-primary">Save Changes</button>
                         </div>
                     </form>
@@ -3959,7 +4260,7 @@ async function updateBank() {
             showMessage("Bank updated successfully", "success");
             const bsModal = bootstrap.Modal.getInstance(document.getElementById('editBankModal'));
             bsModal.hide();
-            loadBanks(currentStatusFilter);
+            loadBanks();
         } else {
             const errorText = await response.text();
             showMessage(errorText || "Failed to update bank", "error");
@@ -3968,7 +4269,6 @@ async function updateBank() {
         showMessage("Error updating bank", "error");
     }
 }
-
 // ================================
 // SETTINGS & UTILITY FUNCTIONS
 // ================================
@@ -4045,6 +4345,8 @@ function filterByStatus(status) {
         loadCompanies(status);
     } else if (currentPage === 'users') {
         loadUsers(status);
+    } else if (currentPage === 'banks') {
+        loadBanks(status); // ✅ Add this line
     }
 }
 

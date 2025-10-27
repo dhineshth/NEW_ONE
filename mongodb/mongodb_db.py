@@ -1,22 +1,22 @@
 import os
-from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 import uuid
 from typing import Dict, List, Optional, Set
 from utils.common_utils import to_init_caps
 from parsing.parsing_utils import extract_email
-
 from dotenv import load_dotenv
 from pathlib import Path
 from bson import Binary
 from docx import Document
 import PyPDF2
 import io
+import asyncio
 
 # --------------------
-# Database Initialization
+# Database Initialization (Async)
 # --------------------
-def initialize_mongodb():
+async def initialize_mongodb():
     # Load .env from the project root
     env_path = Path(__file__).parent.parent / '.env'
     load_dotenv(dotenv_path=env_path)
@@ -28,15 +28,22 @@ def initialize_mongodb():
         raise ValueError("MONGO_URI environment variable is not set")
     
     try:
-        client = MongoClient(MONGO_URI)
+        client = AsyncIOMotorClient(MONGO_URI)
         return client[MONGO_DB]
     except Exception as e:
         raise Exception(f"Failed to initialize MongoDB client: {str(e)}")
 
-db = initialize_mongodb()
+# Global db instance
+db = None
+
+async def get_db():
+    global db
+    if db is None:
+        db = await initialize_mongodb()
+    return db
 
 # --------------------
-# Utility Functions
+# Utility Functions (Keep sync for file processing)
 # --------------------
 import os
 import io
@@ -56,7 +63,6 @@ try:
     from docx import Document
 except ImportError:
     Document = None
-
 
 def count_pages(file_content: bytes, filename: str) -> int:
     """
@@ -134,25 +140,26 @@ def count_pages(file_content: bytes, filename: str) -> int:
                 return 1
         return 1
 
-
 # --------------------
-# Client Management Functions
+# Client Management Functions (Async)
 # --------------------
-def fetch_client_names(company_id: str, status: Optional[str] = None) -> Set[str]:
+async def fetch_client_names(company_id: str, status: Optional[str] = None) -> Set[str]:
     try:
+        db = await get_db()
         query = {"company_id": company_id, "is_deleted": False}
         if status:
             query["status"] = status
             
-        client_names = db.clients.distinct("client_name", query)
+        client_names = await db.clients.distinct("client_name", query)
         return set(sorted(client_names))
     except Exception as e:
         raise Exception(f"Failed to fetch client names: {str(e)}")
 
-def fetch_client_details(client_name: str, company_id: str) -> Optional[Dict]:
+async def fetch_client_details(client_name: str, company_id: str) -> Optional[Dict]:
     try:
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        db = await get_db()
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -163,7 +170,7 @@ def fetch_client_details(client_name: str, company_id: str) -> Optional[Dict]:
         client_id = client_doc["_id"]
         
         # Get the most recent job description for this client
-        jd_doc = db.job_descriptions.find_one(
+        jd_doc = await db.job_descriptions.find_one(
             {"client_id": client_id, "company_id": company_id, "is_deleted": False},
             sort=[("created_at", -1)]
         )
@@ -181,194 +188,11 @@ def fetch_client_details(client_name: str, company_id: str) -> Optional[Dict]:
     except Exception as e:
         raise Exception(f"Failed to fetch client details: {str(e)}")
 
-def update_client_status(client_name: str, company_id: str, status: str) -> bool:
-    """
-    Update the status of a client
-    """
+async def fetch_client_details_by_jd(client_name: str, jd_name: str, company_id: str) -> Optional[Dict]:
     try:
-        if status not in ["active", "inactive"]:
-            raise ValueError("Status must be 'active' or 'inactive'")
-            
-        result = db.clients.update_one(
-            {
-                "client_name": to_init_caps(client_name),
-                "company_id": company_id,
-                "is_deleted": False
-            },
-            {"$set": {"status": status}}
-        )
-        
-        return result.modified_count > 0
-    except Exception as e:
-        print(f"Failed to update client status: {e}")
-        return False
-
-def soft_delete_client(client_name: str, company_id: str, deleted_by: str) -> bool:
-    """
-    Soft delete a client and all its associated JDs and analyses
-    """
-    try:
-        # Soft delete the client
-        client_result = db.clients.update_one(
-            {
-                "client_name": to_init_caps(client_name),
-                "company_id": company_id
-            },
-            {
-                "$set": {
-                    "is_deleted": True,
-                    "status": "inactive",  # Set status to inactive when deleting
-                    "deleted_at": datetime.now(),
-                    "deleted_by": deleted_by
-                }
-            }
-        )
-        
-        if client_result.modified_count == 0:
-            return False
-            
-        # Get client ID
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
-            "company_id": company_id
-        })
-        
-        if not client_doc:
-            return False
-            
-        client_id = client_doc["_id"]
-        
-        # Soft delete all JDs for this client
-        db.job_descriptions.update_many(
-            {
-                "client_id": client_id,
-                "company_id": company_id
-            },
-            {
-                "$set": {
-                    "is_deleted": True,
-                    "status": "inactive",  # Set status to inactive when deleting
-                    "deleted_at": datetime.now(),
-                    "deleted_by": deleted_by
-                }
-            }
-        )
-        
-        # Soft delete all analyses for this client
-        db.analysis_history.update_many(
-            {
-                "client_id": client_id,
-                "company_id": company_id
-            },
-            {
-                "$set": {
-                    "is_deleted": True,
-                    "status": "inactive",  # Set status to inactive when deleting
-                    "deleted_at": datetime.now(),
-                    "deleted_by": deleted_by
-                }
-            }
-        )
-        
-        return True
-    except Exception as e:
-        print(f"Failed to soft delete client: {e}")
-        return False
-
-def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
-    """
-    Restore a soft-deleted client and its associated JDs and analyses
-    """
-    try:
-        # Restore the client
-        client_result = db.clients.update_one(
-            {
-                "client_name": to_init_caps(client_name),
-                "company_id": company_id,
-                "is_deleted": True
-            },
-            {
-                "$set": {
-                    "is_deleted": False,
-                    "status": "active",  # Set status to active when restoring
-                    "restored_at": datetime.now(),
-                    "restored_by": restored_by
-                },
-                "$unset": {
-                    "deleted_at": "",
-                    "deleted_by": ""
-                }
-            }
-        )
-        
-        if client_result.modified_count == 0:
-            return False
-            
-        # Get client ID
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
-            "company_id": company_id
-        })
-        
-        if not client_doc:
-            return False
-            
-        client_id = client_doc["_id"]
-        
-        # Restore all JDs for this client
-        db.job_descriptions.update_many(
-            {
-                "client_id": client_id,
-                "company_id": company_id,
-                "is_deleted": True
-            },
-            {
-                "$set": {
-                    "is_deleted": False,
-                    "status": "active",  # Set status to active when restoring
-                    "restored_at": datetime.now(),
-                    "restored_by": restored_by
-                },
-                "$unset": {
-                    "deleted_at": "",
-                    "deleted_by": ""
-                }
-            }
-        )
-        
-        # Restore all analyses for this client
-        db.analysis_history.update_many(
-            {
-                "client_id": client_id,
-                "company_id": company_id,
-                "is_deleted": True
-            },
-            {
-                "$set": {
-                    "is_deleted": False,
-                    "status": "active",  # Set status to active when restoring
-                    "restored_at": datetime.now(),
-                    "restored_by": restored_by
-                },
-                "$unset": {
-                    "deleted_at": "",
-                    "deleted_by": ""
-                }
-            }
-        )
-        
-        return True
-    except Exception as e:
-        print(f"Failed to restore client: {e}")
-        return False
-
-# --------------------
-# Job Description Management Functions
-# --------------------
-def fetch_jd_names_for_client(client_name: str, company_id: str, status: Optional[str] = None) -> Optional[List[str]]:
-    try:
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        db = await get_db()
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -378,32 +202,9 @@ def fetch_jd_names_for_client(client_name: str, company_id: str, status: Optiona
             
         client_id = client_doc["_id"]
         
-        query = {"client_id": client_id, "company_id": company_id, "is_deleted": False}
-        if status:
-            query["status"] = status
-            
-        jd_names = db.job_descriptions.distinct("jd_title", query)
-        
-        return jd_names if jd_names else None
-    except Exception as e:
-        raise Exception(f"Failed to fetch JD names for client: {str(e)}")
-
-def fetch_client_details_by_jd(client_name: str, jd_name: str, company_id: str) -> Optional[Dict]:
-    try:
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
-            "company_id": company_id,
-            "is_deleted": False
-        })
-        
-        if not client_doc:
-            return None
-            
-        client_id = client_doc["_id"]
-        
-        jd_doc = db.job_descriptions.find_one({
+        jd_doc = await db.job_descriptions.find_one({
             "client_id": client_id,
-            "jd_title": to_init_caps(jd_name),
+            "jd_title": await to_init_caps(jd_name),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -421,14 +222,226 @@ def fetch_client_details_by_jd(client_name: str, jd_name: str, company_id: str) 
     except Exception as e:
         raise Exception(f"Failed to fetch client details by JD: {str(e)}")
 
-def update_job_description(client_name: str, jd_name: str, required_experience: str, 
-                         primary_skills: list, secondary_skills: list, company_id: str) -> bool:
+async def fetch_jd_names_for_client(client_name: str, company_id: str, status: Optional[str] = None) -> Optional[List[str]]:
+    try:
+        db = await get_db()
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
+            "company_id": company_id,
+            "is_deleted": False
+        })
+        
+        if not client_doc:
+            return None
+            
+        client_id = client_doc["_id"]
+        
+        query = {"client_id": client_id, "company_id": company_id, "is_deleted": False}
+        if status:
+            query["status"] = status
+            
+        jd_names = await db.job_descriptions.distinct("jd_title", query)
+        
+        return jd_names if jd_names else None
+    except Exception as e:
+        raise Exception(f"Failed to fetch JD names for client: {str(e)}")
+
+async def update_client_status(client_name: str, company_id: str, status: str) -> bool:
+    """
+    Update the status of a client
+    """
+    try:
+        if status not in ["active", "inactive"]:
+            raise ValueError("Status must be 'active' or 'inactive'")
+        
+        db = await get_db()
+        result = await db.clients.update_one(
+            {
+                "client_name": await to_init_caps(client_name),
+                "company_id": company_id,
+                "is_deleted": False
+            },
+            {"$set": {"status": status}}
+        )
+        
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Failed to update client status: {e}")
+        return False
+
+async def soft_delete_client(client_name: str, company_id: str, deleted_by: str) -> bool:
+    """
+    Soft delete a client and all its associated JDs and analyses
+    """
+    try:
+        db = await get_db()
+        # Soft delete the client
+        client_result = await db.clients.update_one(
+            {
+                "client_name": await to_init_caps(client_name),
+                "company_id": company_id
+            },
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "status": "inactive",
+                    "deleted_at": datetime.now(),
+                    "deleted_by": deleted_by
+                }
+            }
+        )
+        
+        if client_result.modified_count == 0:
+            return False
+            
+        # Get client ID
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
+            "company_id": company_id
+        })
+        
+        if not client_doc:
+            return False
+            
+        client_id = client_doc["_id"]
+        
+        # Soft delete all JDs for this client
+        await db.job_descriptions.update_many(
+            {
+                "client_id": client_id,
+                "company_id": company_id
+            },
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "status": "inactive",
+                    "deleted_at": datetime.now(),
+                    "deleted_by": deleted_by
+                }
+            }
+        )
+        
+        # Soft delete all analyses for this client
+        await db.analysis_history.update_many(
+            {
+                "client_id": client_id,
+                "company_id": company_id
+            },
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "status": "inactive",
+                    "deleted_at": datetime.now(),
+                    "deleted_by": deleted_by
+                }
+            }
+        )
+        
+        return True
+    except Exception as e:
+        print(f"Failed to soft delete client: {e}")
+        return False
+
+async def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
+    """
+    Restore a soft-deleted client and its associated JDs and analyses
+    """
+    try:
+        db = await get_db()
+        # Restore the client
+        client_result = await db.clients.update_one(
+            {
+                "client_name": await to_init_caps(client_name),
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "status": "active",
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        if client_result.modified_count == 0:
+            return False
+            
+        # Get client ID
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
+            "company_id": company_id
+        })
+        
+        if not client_doc:
+            return False
+            
+        client_id = client_doc["_id"]
+        
+        # Restore all JDs for this client
+        await db.job_descriptions.update_many(
+            {
+                "client_id": client_id,
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "status": "active",
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        # Restore all analyses for this client
+        await db.analysis_history.update_many(
+            {
+                "client_id": client_id,
+                "company_id": company_id,
+                "is_deleted": True
+            },
+            {
+                "$set": {
+                    "is_deleted": False,
+                    "status": "active",
+                    "restored_at": datetime.now(),
+                    "restored_by": restored_by
+                },
+                "$unset": {
+                    "deleted_at": "",
+                    "deleted_by": ""
+                }
+            }
+        )
+        
+        return True
+    except Exception as e:
+        print(f"Failed to restore client: {e}")
+        return False
+
+# --------------------
+# Job Description Management Functions (Async)
+# --------------------
+async def update_job_description(client_name: str, jd_name: str, required_experience: str, 
+                               primary_skills: list, secondary_skills: list, company_id: str) -> bool:
     """
     Update the job description details for a given client and JD name in MongoDB
     """
     try:
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        db = await get_db()
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -437,16 +450,16 @@ def update_job_description(client_name: str, jd_name: str, required_experience: 
             
         client_id = client_doc["_id"]
         
-        jd_doc = db.job_descriptions.find_one({
+        jd_doc = await db.job_descriptions.find_one({
             "client_id": client_id,
-            "jd_title": to_init_caps(jd_name),
+            "jd_title": await to_init_caps(jd_name),
             "company_id": company_id,
             "is_deleted": False
         })
         if not jd_doc:
             return False
             
-        result = db.job_descriptions.update_one(
+        result = await db.job_descriptions.update_one(
             {"_id": jd_doc["_id"]},
             {"$set": {
                 "required_experience": required_experience,
@@ -460,16 +473,17 @@ def update_job_description(client_name: str, jd_name: str, required_experience: 
         print(f"Failed to update job description: {e}")
         return False
 
-def update_jd_status(client_name: str, jd_title: str, company_id: str, status: str) -> bool:
+async def update_jd_status(client_name: str, jd_title: str, company_id: str, status: str) -> bool:
     """
     Update the status of a job description
     """
     try:
         if status not in ["active", "inactive"]:
             raise ValueError("Status must be 'active' or 'inactive'")
-            
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        
+        db = await get_db()
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -479,10 +493,10 @@ def update_jd_status(client_name: str, jd_title: str, company_id: str, status: s
             
         client_id = client_doc["_id"]
         
-        result = db.job_descriptions.update_one(
+        result = await db.job_descriptions.update_one(
             {
                 "client_id": client_id,
-                "jd_title": to_init_caps(jd_title),
+                "jd_title": await to_init_caps(jd_title),
                 "company_id": company_id,
                 "is_deleted": False
             },
@@ -494,14 +508,15 @@ def update_jd_status(client_name: str, jd_title: str, company_id: str, status: s
         print(f"Failed to update JD status: {e}")
         return False
 
-def soft_delete_jd(client_name: str, jd_title: str, company_id: str, deleted_by: str) -> bool:
+async def soft_delete_jd(client_name: str, jd_title: str, company_id: str, deleted_by: str) -> bool:
     """
     Soft delete a job description and all its associated analyses
     """
     try:
+        db = await get_db()
         # Get client ID
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id
         })
         
@@ -511,16 +526,16 @@ def soft_delete_jd(client_name: str, jd_title: str, company_id: str, deleted_by:
         client_id = client_doc["_id"]
         
         # Soft delete the JD
-        jd_result = db.job_descriptions.update_one(
+        jd_result = await db.job_descriptions.update_one(
             {
                 "client_id": client_id,
-                "jd_title": to_init_caps(jd_title),
+                "jd_title": await to_init_caps(jd_title),
                 "company_id": company_id
             },
             {
                 "$set": {
                     "is_deleted": True,
-                    "status": "inactive",  # Set status to inactive when deleting
+                    "status": "inactive",
                     "deleted_at": datetime.now(),
                     "deleted_by": deleted_by
                 }
@@ -531,7 +546,7 @@ def soft_delete_jd(client_name: str, jd_title: str, company_id: str, deleted_by:
             return False
             
         # Soft delete all analyses for this JD
-        db.analysis_history.update_many(
+        await db.analysis_history.update_many(
             {
                 "jd_id": client_id,
                 "company_id": company_id
@@ -539,7 +554,7 @@ def soft_delete_jd(client_name: str, jd_title: str, company_id: str, deleted_by:
             {
                 "$set": {
                     "is_deleted": True,
-                    "status": "inactive",  # Set status to inactive when deleting
+                    "status": "inactive",
                     "deleted_at": datetime.now(),
                     "deleted_by": deleted_by
                 }
@@ -551,14 +566,15 @@ def soft_delete_jd(client_name: str, jd_title: str, company_id: str, deleted_by:
         print(f"Failed to soft delete JD: {e}")
         return False
 
-def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: str) -> bool:
+async def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted job description and its associated analyses
     """
     try:
+        db = await get_db()
         # Get client ID
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id
         })
         
@@ -568,17 +584,17 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
         client_id = client_doc["_id"]
         
         # Restore the JD
-        jd_result = db.job_descriptions.update_one(
+        jd_result = await db.job_descriptions.update_one(
             {
                 "client_id": client_id,
-                "jd_title": to_init_caps(jd_title),
+                "jd_title": await to_init_caps(jd_title),
                 "company_id": company_id,
                 "is_deleted": True
             },
             {
                 "$set": {
                     "is_deleted": False,
-                    "status": "active",  # Set status to active when restoring
+                    "status": "active",
                     "restored_at": datetime.now(),
                     "restored_by": restored_by
                 },
@@ -593,7 +609,7 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
             return False
             
         # Restore all analyses for this JD
-        db.analysis_history.update_many(
+        await db.analysis_history.update_many(
             {
                 "jd_id": client_id,
                 "company_id": company_id,
@@ -602,7 +618,7 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
             {
                 "$set": {
                     "is_deleted": False,
-                    "status": "active",  # Set status to active when restoring
+                    "status": "active",
                     "restored_at": datetime.now(),
                     "restored_by": restored_by
                 },
@@ -621,7 +637,7 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
 # --------------------
 # Analysis Management Functions
 # --------------------
-def store_results_in_mongodb(
+async def store_results_in_mongodb(
     analysis_data: Dict,
     jd_data: Dict,
     filename: str,
@@ -635,12 +651,13 @@ def store_results_in_mongodb(
     role: str
 ) -> Optional[str]:
     try:
+        db = await get_db()
         page_count = count_pages(file_content, filename)
         current_time = datetime.now()
 
         # ===== CLIENT SECTION =====
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -649,15 +666,16 @@ def store_results_in_mongodb(
             client_id = client_doc["_id"]
         else:
             new_client = {
-                "client_name": to_init_caps(client_name),
+                "client_name": await to_init_caps(client_name),
                 "company_id": company_id,
                 "created_by": created_by,
                 "created_at": current_time,
                 "status": "active",
                 "is_deleted": False
             }
-            client_id = db.clients.insert_one(new_client).inserted_id
-            log_audit_trail(
+            result = await db.clients.insert_one(new_client)
+            client_id = result.inserted_id
+            await log_audit_trail(
                 user_id=created_by,
                 name=name,
                 role=role,
@@ -668,14 +686,13 @@ def store_results_in_mongodb(
                 old_data={},
                 new_data={"client_name": new_client["client_name"]},
                 screen="users"
-
             )
             client_doc = new_client
 
         # ===== JOB DESCRIPTION SECTION =====
-        jd_doc = db.job_descriptions.find_one({
+        jd_doc = await db.job_descriptions.find_one({
             "client_id": client_id,
-            "jd_title": to_init_caps(job_description),
+            "jd_title": await to_init_caps(job_description),
             "company_id": company_id,
             "is_deleted": False
         })
@@ -685,7 +702,7 @@ def store_results_in_mongodb(
         else:
             new_jd = {
                 "client_id": client_id,
-                "jd_title": to_init_caps(job_description),
+                "jd_title": await to_init_caps(job_description),
                 "required_experience": jd_data.get("required_experience", ""),
                 "primary_skills": jd_data.get("primary_skills", []),
                 "secondary_skills": jd_data.get("secondary_skills", []),
@@ -699,8 +716,9 @@ def store_results_in_mongodb(
                 "status": "active",
                 "is_deleted": False
             }
-            jd_id = db.job_descriptions.insert_one(new_jd).inserted_id
-            log_audit_trail(
+            result = await db.job_descriptions.insert_one(new_jd)
+            jd_id = result.inserted_id
+            await log_audit_trail(
                 user_id=created_by,
                 name=name,
                 role=role,
@@ -758,16 +776,16 @@ def store_results_in_mongodb(
             "is_deleted": False,
         }
 
-        db.analysis_history.insert_one(analysis_record)
+        await db.analysis_history.insert_one(analysis_record)
 
         return analysis_id
 
     except Exception as e:
         raise Exception(f"Failed to store results in MongoDB: {str(e)}")
 
-
-def fetch_analysis_history(current_user: dict) -> List[Dict]:
+async def fetch_analysis_history(current_user: dict) -> List[Dict]:
     try:
+        db = await get_db()
         # Build query based on user role - only for analysis history
         if current_user["role"] == "company_admin":
             # Company admin can see all analyses for their company
@@ -785,10 +803,12 @@ def fetch_analysis_history(current_user: dict) -> List[Dict]:
             query = {"company_id": "invalid_id"}  # Ensure no results
             
         # Exclude file_content from the query to reduce payload size
-        history = list(db.analysis_history.find(
+        history_cursor = db.analysis_history.find(
             query, 
             {"file_content": 0}  # Exclude file content from results
-        ).sort("timestamp", -1))
+        ).sort("timestamp", -1)
+        
+        history = await history_cursor.to_list(length=None)
         
         # Convert ObjectId to string for JSON serialization
         for item in history:
@@ -802,15 +822,16 @@ def fetch_analysis_history(current_user: dict) -> List[Dict]:
     except Exception as e:
         raise Exception(f"Failed to fetch history: {str(e)}")
 
-def update_analysis_status(analysis_id: str, company_id: str, status: str) -> bool:
+async def update_analysis_status(analysis_id: str, company_id: str, status: str) -> bool:
     """
     Update the status of an analysis
     """
     try:
         if status not in ["active", "inactive"]:
             raise ValueError("Status must be 'active' or 'inactive'")
-            
-        result = db.analysis_history.update_one(
+        
+        db = await get_db()
+        result = await db.analysis_history.update_one(
             {
                 "analysis_id": analysis_id,
                 "company_id": company_id,
@@ -824,12 +845,13 @@ def update_analysis_status(analysis_id: str, company_id: str, status: str) -> bo
         print(f"Failed to update analysis status: {e}")
         return False
 
-def soft_delete_analysis(analysis_id: str, company_id: str, deleted_by: str) -> bool:
+async def soft_delete_analysis(analysis_id: str, company_id: str, deleted_by: str) -> bool:
     """
     Soft delete an analysis by setting is_deleted to True and status to inactive
     """
     try:
-        result = db.analysis_history.update_one(
+        db = await get_db()
+        result = await db.analysis_history.update_one(
             {
                 "analysis_id": analysis_id,
                 "company_id": company_id
@@ -837,7 +859,7 @@ def soft_delete_analysis(analysis_id: str, company_id: str, deleted_by: str) -> 
             {
                 "$set": {
                     "is_deleted": True,
-                    "status": "inactive",  # Set status to inactive when deleting
+                    "status": "inactive",
                     "deleted_at": datetime.now(),
                     "deleted_by": deleted_by
                 }
@@ -848,12 +870,13 @@ def soft_delete_analysis(analysis_id: str, company_id: str, deleted_by: str) -> 
         print(f"Failed to soft delete analysis: {e}")
         return False
 
-def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> bool:
+async def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted analysis
     """
     try:
-        result = db.analysis_history.update_one(
+        db = await get_db()
+        result = await db.analysis_history.update_one(
             {
                 "analysis_id": analysis_id,
                 "company_id": company_id,
@@ -862,7 +885,7 @@ def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> boo
             {
                 "$set": {
                     "is_deleted": False,
-                    "status": "active",  # Set status to active when restoring
+                    "status": "active",
                     "restored_at": datetime.now(),
                     "restored_by": restored_by
                 },
@@ -878,10 +901,11 @@ def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> boo
         return False
 
 # --------------------
-# Usage Tracking Functions
+# Usage Tracking Functions (Async)
 # --------------------
-def initialize_usage_tracking(company_id: str):
+async def initialize_usage_tracking(company_id: str):
     """Initialize usage tracking for a new company"""
+    db = await get_db()
     current_month = datetime.now().strftime("%Y-%m")
     usage_record = {
         "company_id": company_id,
@@ -889,22 +913,24 @@ def initialize_usage_tracking(company_id: str):
         "page_count": 0,
         "last_updated": datetime.now()
     }
-    db.company_usage.insert_one(usage_record)
+    await db.company_usage.insert_one(usage_record)
 
-def get_current_month_usage(company_id: str) -> int:
+async def get_current_month_usage(company_id: str) -> int:
     """Get current month's page usage for a company"""
+    db = await get_db()
     current_month = datetime.now().strftime("%Y-%m")
-    usage_record = db.company_usage.find_one({
+    usage_record = await db.company_usage.find_one({
         "company_id": company_id,
         "month": current_month
     })
     return usage_record["page_count"] if usage_record else 0
 
-def increment_usage(company_id: str, page_count: int):
+async def increment_usage(company_id: str, page_count: int):
     """Increment company's page usage"""
+    db = await get_db()
     current_month = datetime.now().strftime("%Y-%m")
     
-    result = db.company_usage.update_one(
+    result = await db.company_usage.update_one(
         {
             "company_id": company_id,
             "month": current_month
@@ -918,26 +944,27 @@ def increment_usage(company_id: str, page_count: int):
     
     return result.modified_count > 0
 
-def get_company_page_limit(company_id: str) -> int:
+async def get_company_page_limit(company_id: str) -> int:
     """Get company's monthly page limit"""
-    company = db.companies.find_one(
+    db = await get_db()
+    company = await db.companies.find_one(
         {"id": company_id, "is_deleted": False},
         {"monthly_page_limit": 1}
     )
     return company.get("monthly_page_limit", 1000) if company else 1000
 
-def check_usage_limit(company_id: str, additional_pages: int = 0) -> bool:
+async def check_usage_limit(company_id: str, additional_pages: int = 0) -> bool:
     """Check if company has reached its monthly limit"""
-    current_usage = get_current_month_usage(company_id)
-    page_limit = get_company_page_limit(company_id)
+    current_usage = await get_current_month_usage(company_id)
+    page_limit = await get_company_page_limit(company_id)
     
     return (current_usage + additional_pages) <= page_limit
 
-def get_usage_stats(company_id: str) -> Dict:
+async def get_usage_stats(company_id: str) -> Dict:
     """Get comprehensive usage statistics"""
     current_month = datetime.now().strftime("%Y-%m")
-    current_usage = get_current_month_usage(company_id)
-    page_limit = get_company_page_limit(company_id)
+    current_usage = await get_current_month_usage(company_id)
+    page_limit = await get_company_page_limit(company_id)
     
     return {
         "current_month": current_month,
@@ -948,55 +975,66 @@ def get_usage_stats(company_id: str) -> Dict:
     }
 
 # --------------------
-# Deleted Items Functions
+# Deleted Items Functions (Async)
 # --------------------
-def get_deleted_clients(company_id: str):
-    return list(db.clients.find({
+async def get_deleted_clients(company_id: str):
+    db = await get_db()
+    clients_cursor = db.clients.find({
         "company_id": company_id,
         "is_deleted": True
-    }, {"_id": 0}))
+    }, {"_id": 0})
+    return await clients_cursor.to_list(length=None)
 
-def get_deleted_jds(company_id: str):
-    return list(db.job_descriptions.find({
+async def get_deleted_jds(company_id: str):
+    db = await get_db()
+    jds_cursor = db.job_descriptions.find({
         "company_id": company_id,
         "is_deleted": True
-    }, {"_id": 0}))
+    }, {"_id": 0})
+    return await jds_cursor.to_list(length=None)
 
-def get_deleted_analyses(company_id: str):
-    return list(db.analysis_history.find({
+async def get_deleted_analyses(company_id: str):
+    db = await get_db()
+    analyses_cursor = db.analysis_history.find({
         "company_id": company_id,
         "is_deleted": True
-    }, {"file_content": 0}))
+    }, {"file_content": 0})
+    return await analyses_cursor.to_list(length=None)
 
 # --------------------
-# Status Filtering Functions
+# Status Filtering Functions (Async)
 # --------------------
-def get_clients_by_status(company_id: str, status: str):
-    return list(db.clients.find({
+async def get_clients_by_status(company_id: str, status: str):
+    db = await get_db()
+    clients_cursor = db.clients.find({
         "company_id": company_id,
         "is_deleted": False,
         "status": status
-    }, {"_id": 0}))
+    }, {"_id": 0})
+    return await clients_cursor.to_list(length=None)
 
-def get_jds_by_status(company_id: str, status: str):
-    return list(db.job_descriptions.find({
+async def get_jds_by_status(company_id: str, status: str):
+    db = await get_db()
+    jds_cursor = db.job_descriptions.find({
         "company_id": company_id,
         "is_deleted": False,
         "status": status
-    }, {"_id": 0}))
+    }, {"_id": 0})
+    return await jds_cursor.to_list(length=None)
 
-def get_analyses_by_status(company_id: str, status: str):
-    return list(db.analysis_history.find({
+async def get_analyses_by_status(company_id: str, status: str):
+    db = await get_db()
+    analyses_cursor = db.analysis_history.find({
         "company_id": company_id,
         "is_deleted": False,
         "status": status
-    }, {"file_content": 0}))
+    }, {"file_content": 0})
+    return await analyses_cursor.to_list(length=None)
 
-# audit log -----
-
-audit_collection = db["audit_logs"]
-
-def log_audit_trail(
+# --------------------
+# Audit Log Functions (Async)
+# --------------------
+async def log_audit_trail(
     user_id: str = None, 
     name: str = None,
     role: str = None,
@@ -1008,6 +1046,7 @@ def log_audit_trail(
     new_data: dict = None,
     screen: str = None 
 ):
+    db = await get_db()
     log = {
         "user_id": user_id,
         "name": name,
@@ -1021,5 +1060,4 @@ def log_audit_trail(
         "screen": screen,
         "timestamp": datetime.utcnow()
     }
-    audit_collection.insert_one(log)
-
+    await db.audit_logs.insert_one(log)

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Query, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, UploadFile, File, Form, Request, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,11 +14,19 @@ from datetime import datetime, timedelta
 import smtplib, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from pymongo import MongoClient
-from pymongo.collection import ReturnDocument
 import json
 import tempfile
+import aiofiles
 from io import BytesIO
+
+# Async imports
+import asyncio
+from motor.motor_asyncio import AsyncIOMotorClient
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 
 from llama.llama_utils import initialize_llama_parser
 from parsing.parsing_utils import parse_resume
@@ -59,29 +67,14 @@ ACCESS_EXPIRE_MIN = 60 * 4     # Access token valid for 4 hours
 REFRESH_EXPIRE_DAYS = 7      # Refresh token valid for 7 days
 
 security = HTTPBearer()
-def create_token(data: dict, expires_delta: timedelta, secret: str):
-    to_encode = data.copy()
-    to_encode.update({"exp": datetime.utcnow() + expires_delta})
-    return jwt.encode(to_encode, secret, algorithm=ALGORITHM)
 
-def create_access_token(data: dict):
-    return create_token(data, timedelta(minutes=ACCESS_EXPIRE_MIN), ACCESS_SECRET_KEY)
-
-def create_refresh_token(data: dict):
-    return create_token(data, timedelta(days=REFRESH_EXPIRE_DAYS), REFRESH_SECRET_KEY)
-
-def verify_access_token(token: str):
-    try:
-        return jwt.decode(token, ACCESS_SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-
-def verify_refresh_token(token: str):
-    try:
-        return jwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-
+# Rate limiter
+DEFAULT_LIMIT = os.getenv("RATE_LIMIT_DEFAULT", "100/minute")
+AUTH_LIMIT = os.getenv("RATE_LIMIT_AUTH", "100/minute")
+UPLOAD_LIMIT = os.getenv("RATE_LIMIT_UPLOAD", "50/minute")
+ADMIN_LIMIT = os.getenv("RATE_LIMIT_ADMIN", "100/minute")
+HIGH_TRAFFIC_LIMIT = os.getenv("RATE_LIMIT_HIGH_TRAFFIC", "200/minute")
+limiter = Limiter(key_func=get_remote_address)
 
 
 # --------------------
@@ -89,8 +82,12 @@ def verify_refresh_token(token: str):
 # --------------------
 MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB = os.getenv("MONGO_DB")
-client = MongoClient(MONGO_URI)
+
+# Async MongoDB client
+client = AsyncIOMotorClient(MONGO_URI)
 db = client[MONGO_DB]
+
+# Collections
 col_super_admins = db["super_admins"]
 col_companies = db["companies"]
 col_company_users = db["company_users"]
@@ -108,10 +105,26 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 app = FastAPI()
 
+# Add SlowAPI middleware
+app.add_middleware(SlowAPIMiddleware)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+def get_rate_limit(limit_type: str = "default") -> str:
+    """
+    Get rate limit from environment variables based on type
+    """
+    limits = {
+        "default": DEFAULT_LIMIT,
+        "auth": AUTH_LIMIT,
+        "upload": UPLOAD_LIMIT,
+        "admin": ADMIN_LIMIT,
+        "high_traffic": HIGH_TRAFFIC_LIMIT
+    }
+    return limits.get(limit_type, DEFAULT_LIMIT)
 # Allow frontend to talk to backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to your domain later for security
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -333,96 +346,46 @@ class BankResponse(BaseModel):
 # --------------------
 # Helper Functions
 # --------------------
+
+def create_token(data: dict, expires_delta: timedelta, secret: str):
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.utcnow() + expires_delta})
+    return jwt.encode(to_encode, secret, algorithm=ALGORITHM)
+
+def create_access_token(data: dict):
+    return create_token(data, timedelta(minutes=ACCESS_EXPIRE_MIN), ACCESS_SECRET_KEY)
+
+def create_refresh_token(data: dict):
+    return create_token(data, timedelta(days=REFRESH_EXPIRE_DAYS), REFRESH_SECRET_KEY)
+
+def verify_access_token(token: str):
+    try:
+        return jwt.decode(token, ACCESS_SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+
+def verify_refresh_token(token: str):
+    try:
+        return jwt.decode(token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
 def _ensure_env_loaded():
     # Load .env from current working directory (project root)
     load_dotenv()
 
-# def get_current_user(request: Request, 
-#                    x_user_role: Optional[str] = Header(default=None), 
-#                    x_user_id: Optional[str] = Header(default=None),
-#                    x_company_id: Optional[str] = Header(default=None)):
-    
-#     # Debug logging to identify header issues
-#     print(f"Auth headers - Role: {x_user_role}, User ID: {x_user_id}, Company ID: {x_company_id}")
-    
-#     if not x_user_role or not x_user_id:
-#         # Check for alternative header names that might be sent from frontend
-#         alternative_user_id = request.headers.get('X-User-ID') or request.headers.get('X-UserId') or request.headers.get('User-Id')
-#         alternative_role = request.headers.get('X-User-Role') or request.headers.get('User-Role')
-        
-#         if alternative_user_id and alternative_role:
-#             x_user_id = alternative_user_id
-#             x_user_role = alternative_role
-#             x_company_id = x_company_id or request.headers.get('X-Company-Id') or request.headers.get('Company-Id')
-#         else:
-#             raise HTTPException(status_code=401, detail="Not authenticated")
-    
-#     return {
-#         "role": x_user_role,
-#         "id": x_user_id,
-#         "company_id": x_company_id
-#     }
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import Depends
 
-security = HTTPBearer()
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     payload = verify_access_token(token)
     return payload
 
-
-def get_current_user1(request: Request, 
-                   x_user_role: Optional[str] = Header(default=None), 
-                   x_user_id: Optional[str] = Header(default=None),
-                   x_company_id: Optional[str] = Header(default=None)):
-    
-    # Debug logging to identify header issues
-    print(f"Auth headers - Role: {x_user_role}, User ID: {x_user_id}, Company ID: {x_company_id}")
-    
-    if not x_user_role or not x_user_id:
-        # Check for alternative header names that might be sent from frontend
-        alternative_user_id = request.headers.get('X-User-ID') or request.headers.get('X-UserId') or request.headers.get('User-Id')
-        alternative_role = request.headers.get('X-User-Role') or request.headers.get('User-Role')
-        
-        if alternative_user_id and alternative_role:
-            x_user_id = alternative_user_id
-            x_user_role = alternative_role
-            x_company_id = x_company_id or request.headers.get('X-Company-Id') or request.headers.get('Company-Id')
-        else:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    return {
-        "role": x_user_role,
-        "id": x_user_id,
-        "company_id": x_company_id
-    }
-
 @app.get("/me")
-def read_me(user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+def read_me(request : Request, user: dict = Depends(get_current_user)):
     return {"message": "Protected content", "user": user}
 
-
-# def require_super_admin(x_user_role: Optional[str] = Header(default=None)) -> str:
-#     if x_user_role != "super_admin":
-#         raise HTTPException(status_code=403, detail="Super admin privilege required")
-#     return x_user_role
-
-# def require_company_admin_or_super_admin(
-#     x_user_role: Optional[str] = Header(default=None),
-#     x_company_id: Optional[str] = Header(default=None),
-#     x_user_id: Optional[str] = Header(default=None)  # 👈 get admin's user ID
-# ) -> dict:
-#     if x_user_role not in ["super_admin", "company_admin"]:
-#         raise HTTPException(status_code=403, detail="Admin privilege required")
-    
-#     return {
-#         "role": x_user_role,
-#         "company_id": x_company_id,
-#         "user_id": x_user_id   # 👈 store user ID
-#     }
-def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
+async def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """
     ✅ Allow only Super Admins
     """
@@ -430,7 +393,7 @@ def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=403, detail="Super admin privilege required")
     return current_user  # Returns entire user payload (user_id, role, company_id, etc.)
 
-def require_company_admin_or_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
+async def require_company_admin_or_super_admin(current_user: dict = Depends(get_current_user)) -> dict:
     """
     ✅ Allow Company Admin OR Super Admin
     """
@@ -438,7 +401,7 @@ def require_company_admin_or_super_admin(current_user: dict = Depends(get_curren
         raise HTTPException(status_code=403, detail="Admin privilege required")
     return current_user  # Returns entire user payload
 
-def send_reset_email(to_email: str, token: str):
+async def send_reset_email(to_email: str, token: str):
     if not (SMTP_HOST and SMTP_PORT and SMTP_FROM):
         raise RuntimeError("SMTP not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER/SMTP_FROM, SMTP_PASS")
 
@@ -495,22 +458,22 @@ def send_reset_email(to_email: str, token: str):
     except Exception as e:
         raise RuntimeError(f"Failed to send email: {str(e)}")
 
-def _find_user_by_email(email: str):
-    sa = col_super_admins.find_one({"email": email})
+async def _find_user_by_email(email: str):
+    sa = await col_super_admins.find_one({"email": email})
     if sa:
         return ("super_admins", sa)
-    cu = col_company_users.find_one({"email": email, "is_deleted": False})
+    cu = await col_company_users.find_one({"email": email, "is_deleted": False})
     if cu:
         return ("company_users", cu)
     return (None, None)
 
-def soft_delete_company(company_id: str, deleted_by: str) -> bool:
+async def soft_delete_company(company_id: str, deleted_by: str) -> bool:
     """
     Soft delete a company and all its associated users
     """
     try:
         # Soft delete the company
-        company_result = col_companies.update_one(
+        company_result = await col_companies.update_one(
             {"id": company_id},
             {
                 "$set": {
@@ -526,7 +489,7 @@ def soft_delete_company(company_id: str, deleted_by: str) -> bool:
             return False
             
         # Soft delete all users for this company
-        col_company_users.update_many(
+        await col_company_users.update_many(
             {"company_id": company_id},
             {
                 "$set": {
@@ -543,12 +506,12 @@ def soft_delete_company(company_id: str, deleted_by: str) -> bool:
         print(f"Failed to soft delete company: {e}")
         return False
 
-def soft_delete_company_user(user_id: str, deleted_by: str) -> bool:
+async def soft_delete_company_user(user_id: str, deleted_by: str) -> bool:
     """
     Soft delete a company user
     """
     try:
-        result = col_company_users.update_one(
+        result = await col_company_users.update_one(
             {"id": user_id},
             {
                 "$set": {
@@ -564,37 +527,12 @@ def soft_delete_company_user(user_id: str, deleted_by: str) -> bool:
         print(f"Failed to soft delete user: {e}")
         return False
 
-# def restore_company(company_id: str, restored_by: str) -> bool:
-#     """
-#     Restore a soft-deleted company
-#     """
-#     try:
-#         result = col_companies.update_one(
-#             {"id": company_id, "is_deleted": True},
-#             {
-#                 "$set": {
-#                     "is_deleted": False,
-#                     "status": "active",  # Set status to active when restoring
-#                     "restored_at": datetime.now().isoformat(),
-#                     "restored_by": restored_by
-#                 },
-#                 "$unset": {
-#                     "deleted_at": "",
-#                     "deleted_by": ""
-#                 }
-#             }
-#         )
-#         return result.modified_count > 0
-#     except Exception as e:
-#         print(f"Failed to restore company: {e}")
-#         return False
-
-def restore_company_user(user_id: str, restored_by: str) -> bool:
+async def restore_company_user(user_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted company user
     """
     try:
-        result = col_company_users.update_one(
+        result = await col_company_users.update_one(
             {"id": user_id, "is_deleted": True},
             {
                 "$set": {
@@ -613,13 +551,13 @@ def restore_company_user(user_id: str, restored_by: str) -> bool:
     except Exception as e:
         print(f"Failed to restore user: {e}")
         return False
-def restore_company_and_users(company_id: str, restored_by: str) -> bool:
+async def restore_company_and_users(company_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted company and all its soft-deleted users.
     """
     try:
         # Restore the company
-        company_result = col_companies.update_one(
+        company_result = await col_companies.update_one(
             {"id": company_id, "is_deleted": True},
             {
                 "$set": {
@@ -636,7 +574,7 @@ def restore_company_and_users(company_id: str, restored_by: str) -> bool:
         )
 
         # Restore all users of this company
-        users_result = col_company_users.update_many(
+        await col_company_users.update_many(
             {"company_id": company_id, "is_deleted": True},
             {
                 "$set": {
@@ -658,12 +596,12 @@ def restore_company_and_users(company_id: str, restored_by: str) -> bool:
         return False
 
 
-def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> bool:
+async def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted analysis
     """
     try:
-        result = db.analysis_history.update_one(
+        result = await db.analysis_history.update_one(
             {
                 "analysis_id": analysis_id,
                 "company_id": company_id,
@@ -686,15 +624,15 @@ def restore_analysis(analysis_id: str, company_id: str, restored_by: str) -> boo
         print(f"Failed to restore analysis: {e}")
         return False
 
-def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
+async def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted client and its associated JDs and analyses
     """
     try:
         # Restore the client
-        client_result = db.clients.update_one(
+        client_result = await db.clients.update_one(
             {
-                "client_name": to_init_caps(client_name),
+                "client_name": await to_init_caps(client_name),
                 "company_id": company_id,
                 "is_deleted": True
             },
@@ -715,8 +653,8 @@ def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
             return False
             
         # Get client ID
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id
         })
         
@@ -726,7 +664,7 @@ def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
         client_id = client_doc["_id"]
         
         # Restore all JDs for this client
-        db.job_descriptions.update_many(
+        await db.job_descriptions.update_many(
             {
                 "client_id": client_id,
                 "company_id": company_id,
@@ -746,7 +684,7 @@ def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
         )
         
         # Restore all analyses for this client
-        db.analysis_history.update_many(
+        await db.analysis_history.update_many(
             {
                 "client_id": client_id,
                 "company_id": company_id,
@@ -770,14 +708,14 @@ def restore_client(client_name: str, company_id: str, restored_by: str) -> bool:
         print(f"Failed to restore client: {e}")
         return False
 
-def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: str) -> bool:
+async def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: str) -> bool:
     """
     Restore a soft-deleted job description and its associated analyses
     """
     try:
         # Get client ID
-        client_doc = db.clients.find_one({
-            "client_name": to_init_caps(client_name),
+        client_doc = await db.clients.find_one({
+            "client_name": await to_init_caps(client_name),
             "company_id": company_id
         })
         
@@ -787,10 +725,10 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
         client_id = client_doc["_id"]
         
         # Restore the JD
-        jd_result = db.job_descriptions.update_one(
+        jd_result = await db.job_descriptions.update_one(
             {
                 "client_id": client_id,
-                "jd_title": to_init_caps(jd_title),
+                "jd_title": await to_init_caps(jd_title),
                 "company_id": company_id,
                 "is_deleted": True
             },
@@ -811,7 +749,7 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
             return False
             
         # Restore all analyses for this JD
-        db.analysis_history.update_many(
+        await db.analysis_history.update_many(
             {
                 "jd_id": client_id,
                 "company_id": company_id,
@@ -838,24 +776,24 @@ def restore_jd(client_name: str, jd_title: str, company_id: str, restored_by: st
 from datetime import datetime
 from pymongo import UpdateOne
 
-def auto_reset_monthly_usage():
+async def auto_reset_monthly_usage():
     """Create new usage records for the new month without overwriting old ones."""
     current_month = datetime.now().strftime("%Y-%m")
 
     # Check if reset already done for this month
-    last_reset = db.system_settings.find_one({"key": "last_usage_reset"})
+    last_reset = await db.system_settings.find_one({"key": "last_usage_reset"})
     if last_reset and last_reset.get("value") == current_month:
         return  # Already reset this month
 
     # Get all active companies
-    companies = db.companies.find({}, {"_id": 1})
+    companies = await db.companies.find({}, {"_id": 1})
 
     # Prepare bulk operations
     operations = []
     for company in companies:
         company_id = str(company["_id"])
         # Check if this month's usage record already exists
-        exists = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+        exists = await db.company_usage.find_one({"company_id": company_id, "month": current_month})
         if not exists:
             operations.append(
                 UpdateOne(
@@ -872,19 +810,19 @@ def auto_reset_monthly_usage():
 
     # Execute all new-month inserts
     if operations:
-        db.company_usage.bulk_write(operations)
+        await db.company_usage.bulk_write(operations)
 
     # Update last reset marker
-    db.system_settings.update_one(
+    await db.system_settings.update_one(
         {"key": "last_usage_reset"},
         {"$set": {"value": current_month, "updated_at": datetime.now()}},
         upsert=True
     )
 
 
-def send_usage_notification_email(company_id: str, usage_percentage: float):
+async def send_usage_notification_email(company_id: str, usage_percentage: float):
     """Send email notification for high usage"""
-    company = col_companies.find_one({"id": company_id}, {"name": 1, "admin_email": 1})
+    company = await col_companies.find_one({"id": company_id}, {"name": 1, "admin_email": 1})
     if not company:
         return
     
@@ -907,8 +845,9 @@ def send_usage_notification_email(company_id: str, usage_percentage: float):
 #-----------
 
 @app.get("/companies/list", response_class=JSONResponse)
-def get_companies_list(current_user: dict = Depends(require_super_admin)):
-    companies = list(col_companies.find({}, {"_id": 1, "name": 1}))
+@limiter.limit(get_rate_limit("admin"))
+async def get_companies_list(request : Request, current_user: dict = Depends(require_super_admin)):
+    companies = await col_companies.find({}, {"_id": 1, "name": 1}).to_list(None)
     result = [{"company_id": None, "company_name": "Super Admin"}]  # include Super Admin
     for c in companies:
         result.append({
@@ -924,7 +863,8 @@ from fastapi import Query
 from fastapi import Query
 
 @app.get("/audit-logs", response_class=JSONResponse)
-def get_audit_logs(
+@limiter.limit(get_rate_limit("high_traffic"))
+async def get_audit_logs(request : Request,
     current_user: dict = Depends(require_super_admin),
     company_id: str = Query(None)
 ):
@@ -963,7 +903,7 @@ def get_audit_logs(
     # 🔹 Exclude unwanted actions
     query["action"] = {"$nin": exclude_actions}
 
-    logs = list(audit_collection.find(query, {"_id": 0}).sort("timestamp", -1))
+    logs = await audit_collection.find(query, {"_id": 0}).sort("timestamp", -1).to_list(None)
     
     # 🔹 Convert timestamp to ISO
     for log in logs:
@@ -973,7 +913,8 @@ def get_audit_logs(
     return {"logs": logs}
 
 @app.get("/audit-logs/company", response_class=JSONResponse)
-def get_company_audit_logs(
+@limiter.limit(get_rate_limit("high_traffic"))
+async def get_company_audit_logs(request : Request,
     current_user: dict = Depends(require_company_admin_or_super_admin)  # 👈 Your role-based dependency
 ):
     company_id = current_user.get("company_id")
@@ -1008,7 +949,7 @@ def get_company_audit_logs(
         "action": {"$nin": exclude_actions}
     }
 
-    logs = list(audit_collection.find(query, {"_id": 0}).sort("timestamp", -1))
+    logs = await audit_collection.find(query, {"_id": 0}).sort("timestamp", -1).to_list(None)
     
     # 🔹 Convert timestamp → ISO
     for log in logs:
@@ -1024,9 +965,10 @@ def get_company_audit_logs(
 # --------------------
 
 @app.post("/login")
-def login(data: LoginRequest, request: Request):
+@limiter.limit(get_rate_limit("auth"))
+async def login(data: LoginRequest, request: Request):
     # Super admin
-    sa = col_super_admins.find_one({"email": data.email})
+    sa = await col_super_admins.find_one({"email": data.email})
     if sa and bcrypt.checkpw(data.password.encode(), sa["password"].encode()):
         payload = {
             "user_id": str(sa.get("id", uuid.uuid4())), 
@@ -1045,7 +987,7 @@ def login(data: LoginRequest, request: Request):
         }
 
     # Company user
-    cu = col_company_users.find_one({"email": data.email, "is_deleted": False, "status": "active"})
+    cu = await col_company_users.find_one({"email": data.email, "is_deleted": False, "status": "active"})
     if cu and bcrypt.checkpw(data.password.encode(), cu["password"].encode()):
         payload = {
             "user_id": str(cu.get("id", uuid.uuid4())),
@@ -1067,7 +1009,8 @@ def login(data: LoginRequest, request: Request):
     raise HTTPException(status_code=401, detail="Invalid email or password or account is inactive")
 
 @app.post("/refresh")
-def refresh_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+@limiter.limit(get_rate_limit("auth"))
+async def refresh_token(request: Request,credentials: HTTPAuthorizationCredentials = Depends(security)):
     refresh_token = credentials.credentials
     payload = verify_refresh_token(refresh_token)
 
@@ -1081,13 +1024,14 @@ def refresh_token(credentials: HTTPAuthorizationCredentials = Depends(security))
     return {"access_token": new_access}
 
 @app.post("/password-reset/request")
-def password_reset_request(data: PasswordResetRequest):
+@limiter.limit(get_rate_limit("auth"))
+async def password_reset_request(request: Request,data: PasswordResetRequest):
     if not data.email or not data.new_password:
         raise HTTPException(status_code=400, detail="Email and new password are required")
     if len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
-    table, user = _find_user_by_email(data.email)
+    table, user = await _find_user_by_email(data.email)
     if not user:
         raise HTTPException(status_code=404, detail="Email not found")
 
@@ -1107,10 +1051,10 @@ def password_reset_request(data: PasswordResetRequest):
         "created_at": datetime.utcnow().isoformat()
     }
 
-    col_password_resets.insert_one(reset_row)
+    await col_password_resets.insert_one(reset_row)
 
     try:
-        send_reset_email(data.email, token)
+        await send_reset_email(data.email, token)
     except Exception as e:
         print("Failed to send email:", str(e))
         msg = "Failed to send reset email"
@@ -1121,64 +1065,66 @@ def password_reset_request(data: PasswordResetRequest):
     return {"message": "Password reset email sent"}
 
 @app.post("/password-reset/confirm/{token}", response_model=dict)
-def password_reset_confirm(token: str):
+@limiter.limit(get_rate_limit("auth"))
+async def password_reset_confirm(request: Request,token: str):
     if not token:
         raise HTTPException(status_code=400, detail="Token is required")
 
-    row = col_password_resets.find_one({"token": token})
+    row = await col_password_resets.find_one({"token": token})
     if not row:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
     try:
         if datetime.utcnow() > datetime.fromisoformat(row["expires_at"].replace("Z", "")):
-            col_password_resets.delete_one({"id": row["id"]})
+            await col_password_resets.delete_one({"id": row["id"]})
             raise HTTPException(status_code=400, detail="Token expired")
     except Exception:
-        col_password_resets.delete_one({"id": row.get("id")})
+        await col_password_resets.delete_one({"id": row.get("id")})
         raise HTTPException(status_code=400, detail="Invalid token")
 
     target = row.get("user_table")
     if target == "super_admins":
-        upd = col_super_admins.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
+        upd = await col_super_admins.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
     elif target == "company_users":
-        upd = col_company_users.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
+        upd = await col_company_users.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
     else:
-        col_password_resets.delete_one({"id": row.get("id")})
+        await col_password_resets.delete_one({"id": row.get("id")})
         raise HTTPException(status_code=400, detail="Invalid token context")
 
     if upd.modified_count == 0:
         raise HTTPException(status_code=500, detail="Failed to update password")
 
-    col_password_resets.delete_one({"id": row.get("id")})
+    await col_password_resets.delete_one({"id": row.get("id")})
     return {"message": "Password reset successful"}
 
 @app.get("/password-reset/confirm/{token}", response_class=HTMLResponse)
-def password_reset_confirm_get(token: str):
-    row = col_password_resets.find_one({"token": token})
+@limiter.limit(get_rate_limit("auth"))
+async def password_reset_confirm_get(request: Request,token: str):
+    row = await col_password_resets.find_one({"token": token})
     if not row:
         return HTMLResponse("<h3>Invalid or expired token</h3>", status_code=400)
 
     try:
         if datetime.utcnow() > datetime.fromisoformat(row["expires_at"].replace("Z", "")):
-            col_password_resets.delete_one({"id": row["id"]})
+            await col_password_resets.delete_one({"id": row["id"]})
             return HTMLResponse("<h3>Token expired</h3>", status_code=400)
     except Exception:
-        col_password_resets.delete_one({"id": row.get("id")})
+        await col_password_resets.delete_one({"id": row.get("id")})
         return HTMLResponse("<h3>Invalid token</h3>", status_code=400)
 
     target = row.get("user_table")
     if target == "super_admins":
-        upd = col_super_admins.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
+        upd = await col_super_admins.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
     elif target == "company_users":
-        upd = col_company_users.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
+        upd = await col_company_users.update_one({"email": row["email"]}, {"$set": {"password": row["new_password_hash"]}})
     else:
-        col_password_resets.delete_one({"id": row.get("id")})
+        await col_password_resets.delete_one({"id": row.get("id")})
         return HTMLResponse("<h3>Invalid token</h3>", status_code=400)
 
     if upd.modified_count == 0:
         return HTMLResponse("<h3>Failed to update password</h3>", status_code=500)
 
-    col_password_resets.delete_one({"id": row.get("id")})
+    await col_password_resets.delete_one({"id": row.get("id")})
     return HTMLResponse("<h3>Password reset successful. You may close this window and log in.</h3>")
 
 # --------------------
@@ -1187,7 +1133,10 @@ def password_reset_confirm_get(token: str):
 app.mount("/logos", StaticFiles(directory="logos"), name="logos")
 
 @app.post("/companies/{company_id}/logo")
-def upload_company_logo(
+@limiter.limit(get_rate_limit("upload"))
+@limiter.limit("10/minute")
+async def upload_company_logo(
+    request: Request,
     company_id: str,
     logo: UploadFile = File(...),
     user: dict = Depends(require_company_admin_or_super_admin)
@@ -1197,7 +1146,7 @@ def upload_company_logo(
         raise HTTPException(status_code=400, detail="Only JPEG, PNG and GIF images are allowed")
 
     # Check file size (1MB max)
-    contents = logo.file.read()
+    contents = await logo.read()
     if len(contents) > 1024 * 1024:
         raise HTTPException(status_code=400, detail="File size must be less than 1MB")
 
@@ -1206,15 +1155,15 @@ def upload_company_logo(
     unique_filename = f"{company_id}_{uuid.uuid4().hex}.{file_extension}"
     logo_path = f"logos/{unique_filename}"
 
-    # Save file
-    with open(logo_path, "wb") as buffer:
-        buffer.write(contents)
+    # Save file asynchronously
+    async with aiofiles.open(logo_path, "wb") as buffer:
+        await buffer.write(contents)
 
     # Fetch old company data for audit
-    old_company = col_companies.find_one({"id": company_id})
+    old_company = await col_companies.find_one({"id": company_id})
 
     # Update company record with logo path
-    result = col_companies.update_one(
+    result = await col_companies.update_one(
         {"id": company_id},
         {"$set": {"logo_url": f"/logos/{unique_filename}"}}
     )
@@ -1228,10 +1177,10 @@ def upload_company_logo(
         raise HTTPException(status_code=404, detail="Company not found")
 
     # Fetch new company data for audit
-    new_company = col_companies.find_one({"id": company_id})
+    new_company = await col_companies.find_one({"id": company_id})
 
     # Log audit trail
-    log_audit_trail(
+    await log_audit_trail(
         user_id=user.get("user_id"),
         name=user.get("name"),
         role=user.get("role"),
@@ -1247,21 +1196,22 @@ def upload_company_logo(
     return {"message": "Logo uploaded successfully", "logo_url": f"/logos/{unique_filename}"}
 
 @app.post("/companies", response_model=CompanyResponse)
-def create_company(
-    company: CompanyCreate,
+@limiter.limit(get_rate_limit("admin"))
+async def create_company(
+    company: CompanyCreate,request : Request,
     user: dict = Depends(require_super_admin)
 ):
     # Duplicate checks (include is_deleted: False to check for non-deleted companies)
-    if col_companies.find_one({"name": company.name, "is_deleted": False}):
+    if await col_companies.find_one({"name": company.name, "is_deleted": False}):
         raise HTTPException(status_code=400, detail="Company name already exists")
-    if col_company_users.find_one({"email": company.admin_email, "is_deleted": False}):
+    if await col_company_users.find_one({"email": company.admin_email, "is_deleted": False}):
         raise HTTPException(status_code=400, detail="Admin email already exists")
 
     now_iso = datetime.now().isoformat()
     company_id = str(uuid.uuid4())
     
     # Initialize usage tracking first
-    initialize_usage_tracking(company_id)
+    await initialize_usage_tracking(company_id)
     
     company_doc = {
         "_id": company_id,
@@ -1300,7 +1250,7 @@ def create_company(
         "bank_branch": company.bank_branch,
         "bank_address": company.bank_address
     }
-    col_companies.insert_one(company_doc)
+    await col_companies.insert_one(company_doc)
 
     # Initial company admin
     admin_id = str(uuid.uuid4())
@@ -1317,11 +1267,11 @@ def create_company(
         "is_deleted": False  # Add this field
     }
     try:
-        col_company_users.insert_one(admin_doc)
+        await col_company_users.insert_one(admin_doc)
     except Exception as e:
         # Keep company, but surface in logs
         print("Failed to create company admin:", str(e))
-    log_audit_trail(
+    await log_audit_trail(
         user_id=user.get("user_id"),
         name=user.get("name"),
         role=user.get("role"),
@@ -1340,32 +1290,36 @@ def create_company(
     return CompanyResponse(**company_doc)
 
 @app.get("/companies")
-def get_companies(status: Optional[str] = None, _: str = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_companies(request : Request, status: Optional[str] = None, _: str = Depends(get_current_user)):
     items = []
     query = {"is_deleted": False}
     if status:
         query["status"] = status
         
-    for doc in col_companies.find(query, {"_id": 0}):
+    async for doc in col_companies.find(query, {"_id": 0}):
         # Add current usage to response
         usage_info = {
-            "current_month_usage": get_current_month_usage(doc["id"]),
+            "current_month_usage": await get_current_month_usage(doc["id"]),
             "monthly_page_limit": doc.get("monthly_page_limit", 1000)
         }
         items.append({**doc, **usage_info})
     return items
 @app.patch("/companies/{company_id}", response_model=CompanyResponse)
-def update_company(
+@limiter.limit(get_rate_limit("admin"))
+async def update_company(
+    request : Request,
     company_id: str,
     company: CompanyUpdate,
-    user: dict = Depends(require_company_admin_or_super_admin)
+    user: dict = Depends(require_company_admin_or_super_admin),
+    
 ):
     update_data = {k: v for k, v in company.dict(exclude_unset=True).items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     # Fetch old data
-    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    old_company = await col_companies.find_one({"id": company_id, "is_deleted": False})
     if not old_company:
         raise HTTPException(status_code=404, detail="Company not found")
 
@@ -1379,11 +1333,10 @@ def update_company(
         raise HTTPException(status_code=400, detail="No actual changes detected")
 
     # Perform update
-    updated = col_companies.find_one_and_update(
+    updated = await col_companies.find_one_and_update(
         {"id": company_id, "is_deleted": False},
         {"$set": changed_fields},
-        return_document=ReturnDocument.AFTER,
-        projection={"_id": 0}
+        return_document=True
     )
 
     # Prepare audit data (only truly modified fields)
@@ -1391,7 +1344,7 @@ def update_company(
     modified_new_data = {k: updated.get(k) for k in changed_fields.keys()}
 
     # Log audit trail (no extra_info, only changed fields)
-    log_audit_trail(
+    await log_audit_trail(
         user_id=user.get("user_id"),
         name=user.get("name"),
         role=user.get("role"),
@@ -1409,18 +1362,21 @@ def update_company(
 
 
 @app.delete("/companies/{company_id}")
-def delete_company(
+@limiter.limit(get_rate_limit("admin"))
+async def delete_company(
+    request : Request,
     company_id: str,
     x_user_id: Optional[str] = Header(default=None),
     user: dict = Depends(require_super_admin)
 ):
     # Fetch company for audit
-    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    old_company = await col_companies.find_one({"id": company_id, "is_deleted": False})
     if not old_company:
         raise HTTPException(status_code=404, detail="Company not found")
 
     # Check if company still has users
-    if col_company_users.count_documents({"company_id": company_id, "is_deleted": False}) > 0:
+    user_count = await col_company_users.count_documents({"company_id": company_id, "is_deleted": False})
+    if user_count > 0:
         raise HTTPException(status_code=400, detail="First remove this company's users, then delete the company.")
 
     # Soft delete: mark is_deleted=True
@@ -1430,7 +1386,7 @@ def delete_company(
         "deleted_at": datetime.utcnow()
     }
 
-    result = col_companies.update_one(
+    result = await col_companies.update_one(
         {"id": company_id, "is_deleted": False},
         {"$set": update_fields}
     )
@@ -1439,14 +1395,14 @@ def delete_company(
         raise HTTPException(status_code=404, detail="Company not found")
 
     # Fetch new company data for audit
-    new_company = col_companies.find_one({"id": company_id})
+    new_company = await col_companies.find_one({"id": company_id})
 
     # Prepare audit log (only modified fields)
     modified_old_data = {k: old_company.get(k) for k in update_fields.keys()}
     modified_new_data = {k: new_company.get(k) for k in update_fields.keys()}
 
     # Log audit trail — no extra_info
-    log_audit_trail(
+    await log_audit_trail(
         user_id=user.get("user_id"),
         name=user.get("name"),
         role=user.get("role"),
@@ -1463,9 +1419,14 @@ def delete_company(
 
 
 @app.get("/companies/{company_id}/api-keys")
-def get_company_api_keys(company_id: str, _: str = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_company_api_keys(
+    request: Request,
+    company_id: str, 
+    _: str = Depends(require_super_admin)
+):
     """Get API keys for a company (masked for security)"""
-    company = col_companies.find_one(
+    company = await col_companies.find_one(
         {"id": company_id, "is_deleted": False},
         {"gemini_api_key": 1, "llama_api_key": 1, "gemini_model": 1, "name": 1}
     )
@@ -1484,7 +1445,9 @@ def get_company_api_keys(company_id: str, _: str = Depends(require_super_admin))
     return response
 
 @app.patch("/companies/{company_id}/api-keys")
-def update_company_api_keys(
+@limiter.limit(get_rate_limit("admin"))
+async def update_company_api_keys(
+    request: Request,
     company_id: str, 
     gemini_api_key: Optional[str] = Form(None),
     llama_api_key: Optional[str] = Form(None),
@@ -1508,7 +1471,7 @@ def update_company_api_keys(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     # Fetch old data for audit
-    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    old_company = await col_companies.find_one({"id": company_id, "is_deleted": False})
     if not old_company:
         raise HTTPException(status_code=404, detail="Company not found")
 
@@ -1522,10 +1485,10 @@ def update_company_api_keys(
         raise HTTPException(status_code=400, detail="No actual changes detected")
 
     # Update the company
-    updated = col_companies.find_one_and_update(
+    updated = await col_companies.find_one_and_update(
         {"id": company_id, "is_deleted": False},
         {"$set": changed_fields},
-        return_document=ReturnDocument.AFTER,
+        return_document=True,
         projection={"_id": 0, "gemini_api_key": 0, "llama_api_key": 0}  # hide sensitive keys
     )
 
@@ -1534,7 +1497,7 @@ def update_company_api_keys(
     modified_new_data = {k: update_data.get(k) for k in changed_fields.keys()}
 
     # Log audit trail — no extra_info
-    log_audit_trail(
+    await log_audit_trail(
         user_id=user.get("user_id"),
         name=user.get("name"),
         role=user.get("role"),
@@ -1552,11 +1515,15 @@ def update_company_api_keys(
         "company": updated
     }
 
-
 @app.get("/companies/{company_id}/usage")
-def get_company_usage(company_id: str, _: str = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_company_usage(
+    request: Request,
+    company_id: str, 
+    _: str = Depends(require_super_admin)
+):
     """Get company usage statistics"""
-    company = col_companies.find_one(
+    company = await col_companies.find_one(
         {"id": company_id, "is_deleted": False},
         {"name": 1, "monthly_page_limit": 1}
     )
@@ -1564,7 +1531,7 @@ def get_company_usage(company_id: str, _: str = Depends(require_super_admin)):
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     
-    usage_stats = get_usage_stats(company_id)
+    usage_stats = await get_usage_stats(company_id)
     
     return {
         "company_name": company["name"],
@@ -1572,33 +1539,11 @@ def get_company_usage(company_id: str, _: str = Depends(require_super_admin)):
         "current_usage": usage_stats["current_usage"],
         "usage_percentage": usage_stats["usage_percentage"]
     }
-# generate month wise report for usage
-
-# @app.patch("/companies/{company_id}/limit")
-# def update_company_limit(
-#     company_id: str, 
-#     monthly_page_limit: int = Query(..., description="New monthly page limit"),
-#     _: str = Depends(require_super_admin)
-# ):
-#     """Update company's monthly page limit"""
-#     if monthly_page_limit < 0:
-#         raise HTTPException(status_code=400, detail="Page limit must be positive")
-    
-#     result = col_companies.update_one(
-#         {"id": company_id, "is_deleted": False},
-#         {"$set": {"monthly_page_limit": monthly_page_limit}}
-#     )
-    
-#     if result.modified_count == 0:
-#         raise HTTPException(status_code=404, detail="Company not found")
-    
-#     return {
-#         "message": f"Page limit updated to {monthly_page_limit}",
-#         "usage_stats": get_usage_stats(company_id)
-#     }
 
 @app.patch("/companies/{company_id}/limit")
-def update_company_limit(
+@limiter.limit(get_rate_limit("admin"))
+async def update_company_limit(
+    request: Request,
     company_id: str,
     monthly_page_limit: int = Query(..., description="Additional pages to add to this month's limit"),
     amount_paid: float = Query(..., description="Amount paid in ₹ for this page limit update"),
@@ -1614,8 +1559,8 @@ def update_company_limit(
     current_month = datetime.now().strftime("%Y-%m")
 
     # Fetch old usage doc for audit
-    old_usage = db.company_usage.find_one({"company_id": company_id, "month": current_month})
-    previous_limit = old_usage.get("page_limit", 0) if old_usage else 0
+    old_usage = await db.company_usage.find_one({"company_id": company_id, "month": current_month})
+    previous_limit = old_usage.get("page_limit", 0) if old_usage else 0  # Fixed: removed await from dict.get()
     new_limit = previous_limit + monthly_page_limit
 
     if not old_usage:
@@ -1639,10 +1584,10 @@ def update_company_limit(
                 }
             ]
         }
-        db.company_usage.insert_one(usage_doc)
+        await db.company_usage.insert_one(usage_doc)
     else:
         # Existing month, update limit
-        db.company_usage.update_one(
+        await db.company_usage.update_one(
             {"_id": old_usage["_id"]},
             {
                 "$set": {
@@ -1666,7 +1611,7 @@ def update_company_limit(
         )
 
     # Update main company record
-    col_companies.update_one(
+    await col_companies.update_one(
         {"id": company_id, "is_deleted": False},
         {"$set": {"monthly_page_limit": new_limit}}
     )
@@ -1681,7 +1626,7 @@ def update_company_limit(
     }
 
     # Log audit trail — no extra_info
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -1694,18 +1639,16 @@ def update_company_limit(
         screen="company"  
     )
 
-    updated_stats = get_usage_stats(company_id)
+    updated_stats = await get_usage_stats(company_id)
     return {
         "message": f"Page limit increased by {monthly_page_limit}. New total: {new_limit}. Paid ₹{amount_paid}",
         "usage_stats": updated_stats
     }
 
-
-
-from fastapi import Query
-
 @app.get("/companies/usage-report")
-def get_companies_usage_report(
+@limiter.limit(get_rate_limit("admin"))
+async def get_companies_usage_report(
+    request: Request,
     month: str = Query(None, description="Month in YYYY-MM format"),
     _: dict = Depends(require_super_admin)
 ):
@@ -1716,11 +1659,15 @@ def get_companies_usage_report(
     current_month = month or datetime.now().strftime("%Y-%m")
     report = []
 
-    companies = col_companies.find({"is_deleted": False, "status": "active"}, {"id": 1, "name": 1, "monthly_page_limit": 1})
+    # Fixed: Use async cursor iteration
+    companies_cursor = col_companies.find(
+        {"is_deleted": False, "status": "active"}, 
+        {"id": 1, "name": 1, "monthly_page_limit": 1}
+    )
     
-    for company in companies:
+    async for company in companies_cursor:
         company_id = company["id"]
-        usage_doc = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+        usage_doc = await db.company_usage.find_one({"company_id": company_id, "month": current_month})
 
         if usage_doc:
             current_usage = usage_doc.get("page_count", 0)
@@ -1748,84 +1695,11 @@ def get_companies_usage_report(
     
     return {"report": report, "month": current_month}
 
-# from fastapi import Query
-# from datetime import datetime
-# from dateutil.relativedelta import relativedelta
-
-# @app.get("/companies/usage-report")
-# def get_companies_usage_report(
-#     start_month: str = Query(None, description="Start month in YYYY-MM format"),
-#     end_month: str = Query(None, description="End month in YYYY-MM format"),
-#     _: dict = Depends(require_super_admin)
-# ):
-#     """
-#     Returns report for one month or a range of months.
-#     If only start_month or end_month is provided, defaults to single month mode.
-#     """
-#     report = []
-#     now = datetime.now()
-
-#     # Determine range
-#     if start_month and end_month:
-#         start = datetime.strptime(start_month, "%Y-%m")
-#         end = datetime.strptime(end_month, "%Y-%m")
-#         months = []
-#         current = start
-#         while current <= end:
-#             months.append(current.strftime("%Y-%m"))
-#             current += relativedelta(months=1)
-#     else:
-#         # Default: current month or explicit single month
-#         current_month = start_month or end_month or now.strftime("%Y-%m")
-#         months = [current_month]
-
-#     companies = col_companies.find(
-#         {"is_deleted": False, "status": "active"},
-#         {"id": 1, "name": 1, "monthly_page_limit": 1}
-#     )
-
-#     for company in companies:
-#         company_id = company["id"]
-#         monthly_data = []
-
-#         for month in months:
-#             usage_doc = db.company_usage.find_one({"company_id": company_id, "month": month})
-
-#             if usage_doc:
-#                 current_usage = usage_doc.get("page_count", 0)
-#                 monthly_limit = usage_doc.get("page_limit", 0)
-#                 history = usage_doc.get("history", [])
-#             else:
-#                 current_usage = 0
-#                 monthly_limit = 0
-#                 history = []
-
-#             remaining_pages = max(monthly_limit - current_usage, 0)
-#             total_paid = sum(h.get("amount_paid", 0) for h in history) if history else 0
-#             usage_percentage = (current_usage / monthly_limit * 100) if monthly_limit > 0 else 0
-
-#             monthly_data.append({
-#                 "month": month,
-#                 "current_usage": current_usage,
-#                 "monthly_limit": monthly_limit,
-#                 "remaining_pages": remaining_pages,
-#                 "usage_percentage": round(usage_percentage, 1),
-#                 "total_paid": total_paid,
-#                 "history": history
-#             })
-
-#         report.append({
-#             "company_id": company_id,
-#             "company_name": company["name"],
-#             "months": monthly_data
-#         })
-
-#     return {"report": report, "months": months}
-
-
 
 @app.patch("/companies/{company_id}/status")
-def update_company_status(
+@limiter.limit(get_rate_limit("admin"))
+async def update_company_status(
+    request: Request,
     company_id: str,
     status: str = Query(..., description="Status to set"),
     current_user: dict = Depends(require_super_admin)
@@ -1834,13 +1708,13 @@ def update_company_status(
         raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
 
     # Fetch old company status for audit
-    old_company = col_companies.find_one({"id": company_id, "is_deleted": False})
+    old_company = await col_companies.find_one({"id": company_id, "is_deleted": False})
     if not old_company:
         raise HTTPException(status_code=404, detail="Company not found")
     old_status = old_company.get("status")
 
     # Update company status
-    col_companies.update_one(
+    await col_companies.update_one(
         {"id": company_id, "is_deleted": False},
         {"$set": {"status": status}}
     )
@@ -1848,14 +1722,16 @@ def update_company_status(
     # Update company users based on company status
     if status == "inactive":
         # Deactivate all company users
-        old_users = list(col_company_users.find({"company_id": company_id, "is_deleted": False}))
-        col_company_users.update_many(
+        old_users_cursor = col_company_users.find({"company_id": company_id, "is_deleted": False})
+        old_users = await old_users_cursor.to_list(length=None)
+        
+        await col_company_users.update_many(
             {"company_id": company_id, "is_deleted": False},
             {"$set": {"status": "inactive"}}
         )
         # Audit log for users
         for u in old_users:
-            log_audit_trail(
+            await log_audit_trail(
                 user_id=current_user.get("user_id"),
                 name=current_user.get("name"),
                 role=current_user.get("role"),
@@ -1870,18 +1746,20 @@ def update_company_status(
 
     elif status == "active":
         # Reactivate only company_admin users
-        admin_users = list(col_company_users.find({
+        admin_users_cursor = col_company_users.find({
             "company_id": company_id,
             "is_deleted": False,
             "role": "company_admin"
-        }))
-        col_company_users.update_many(
+        })
+        admin_users = await admin_users_cursor.to_list(length=None)
+        
+        await col_company_users.update_many(
             {"company_id": company_id, "is_deleted": False, "role": "company_admin"},
             {"$set": {"status": "active"}}
         )
         # Audit log for reactivated admins
         for u in admin_users:
-            log_audit_trail(
+            await log_audit_trail(
                 user_id=current_user.get("user_id"),
                 name=current_user.get("name"),
                 role=current_user.get("role"),
@@ -1895,7 +1773,7 @@ def update_company_status(
             )
 
     # Log audit for company status change
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -1910,32 +1788,38 @@ def update_company_status(
 
     return {"message": f"Company status updated to {status}"}
 
-
 @app.post("/companies/{company_id}/restore")
-def restore_company_endpoint(company_id: str, current_user: dict = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def restore_company_endpoint(
+    request: Request,
+    company_id: str, 
+    current_user: dict = Depends(require_super_admin)
+):
     # Fetch deleted company for audit
-    old_company = col_companies.find_one({"id": company_id, "is_deleted": True})
+    old_company = await col_companies.find_one({"id": company_id, "is_deleted": True})
     if not old_company:
         raise HTTPException(status_code=404, detail="Company not found or not deleted")
 
     # Fetch deleted users
-    old_users = list(col_company_users.find({"company_id": company_id, "is_deleted": True}))
+    old_users_cursor = col_company_users.find({"company_id": company_id, "is_deleted": True})
+    old_users = await old_users_cursor.to_list(length=None)
 
     # Restore company and its users
-    success = restore_company_and_users(company_id, current_user.get("user_id"))
+    success = await restore_company_and_users(company_id, current_user.get("user_id"))
     if not success:
         raise HTTPException(status_code=500, detail="Failed to restore company or users")
 
     # Fetch restored company and users
-    new_company = col_companies.find_one({"id": company_id, "is_deleted": False})
-    new_users = list(col_company_users.find({"company_id": company_id, "is_deleted": False}))
+    new_company = await col_companies.find_one({"id": company_id, "is_deleted": False})
+    new_users_cursor = col_company_users.find({"company_id": company_id, "is_deleted": False})
+    new_users = await new_users_cursor.to_list(length=None)
 
     # Prepare audit data — only changed fields
     modified_old_data = {"is_deleted": True, "restored_user_count": len(old_users)}
     modified_new_data = {"is_deleted": False, "restored_user_count": len(new_users)}
 
     # Log audit trail
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -1951,26 +1835,6 @@ def restore_company_endpoint(company_id: str, current_user: dict = Depends(requi
     return {"message": f"Company and {len(new_users)} users restored successfully"}
 
 
-
-# @app.post("/companies/bulk-status")
-# def bulk_update_companies_status(data: BulkStatusUpdate, _: str = Depends(require_super_admin)):
-#     if data.status not in ["active", "inactive"]:
-#         raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
-    
-#     result = col_companies.update_many(
-#         {"id": {"$in": data.ids}, "is_deleted": False},
-#         {"$set": {"status": data.status}}
-#     )
-    
-#     # If deactivating companies, also deactivate their users
-#     if data.status == "inactive":
-#         col_company_users.update_many(
-#             {"company_id": {"$in": data.ids}, "is_deleted": False},
-#             {"$set": {"status": "inactive"}}
-#         )
-    
-#     return {"message": f"Updated {result.modified_count} companies to {data.status}"}
-
 # --------------------
 # User Routes
 # --------------------
@@ -1980,7 +1844,9 @@ def restore_company_endpoint(company_id: str, current_user: dict = Depends(requi
 app.mount("/logos/users", StaticFiles(directory="logos/users"), name="user_logos")
 
 @app.post("/users/{user_id}/profile-photo")
+@limiter.limit(get_rate_limit("upload"))
 async def upload_user_photo(
+    request: Request,
     user_id: str,
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user)
@@ -2002,16 +1868,16 @@ async def upload_user_photo(
     unique_filename = f"{user_id}_{uuid.uuid4().hex}.{file_extension}"
     logo_path = f"logos/users/{unique_filename}"
 
-    # Save file
-    with open(logo_path, "wb") as buffer:
-        buffer.write(contents)
+    # Save file asynchronously
+    async with aiofiles.open(logo_path, "wb") as buffer:
+        await buffer.write(contents)
 
     # Fetch old user data for audit
-    old_user = col_company_users.find_one({"id": user_id})
+    old_user = await col_company_users.find_one({"id": user_id})
     old_photo = old_user.get("profile_photo_url") if old_user else None
 
     # Update user record with new photo URL
-    result = col_company_users.update_one(
+    result = await col_company_users.update_one(
         {"id": user_id, "is_deleted": False},
         {"$set": {"profile_photo_url": f"/logos/users/{unique_filename}"}}
     )
@@ -2025,11 +1891,11 @@ async def upload_user_photo(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Fetch new user data for audit
-    new_user = col_company_users.find_one({"id": user_id})
+    new_user = await col_company_users.find_one({"id": user_id})
     new_photo = new_user.get("profile_photo_url")
 
     # Log audit trail — only modified field
-    log_audit_trail(
+    await log_audit_trail(
         user_id=user.get("user_id"),
         name=user.get("name"),
         role=user.get("role"),
@@ -2047,10 +1913,13 @@ async def upload_user_photo(
         "profile_photo_url": f"/logos/users/{unique_filename}"
     }
 
-
-
 @app.post("/users", response_model=UserResponse)
-def create_user(user: UserCreate, current_user: dict = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def create_user(
+    request: Request,
+    user: UserCreate, 
+    current_user: dict = Depends(require_super_admin)
+):
     try:
         now_iso = datetime.now().isoformat()
         user_id = str(uuid.uuid4())
@@ -2086,11 +1955,11 @@ def create_user(user: UserCreate, current_user: dict = Depends(require_super_adm
             "is_deleted": False
         }
 
-        # ✅ Insert user record
-        col_company_users.insert_one(user_doc)
+        # Insert user record
+        await col_company_users.insert_one(user_doc)
 
-        # ✅ Audit trail for user creation
-        log_audit_trail(
+        # Audit trail for user creation
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -2109,38 +1978,51 @@ def create_user(user: UserCreate, current_user: dict = Depends(require_super_adm
         print("Error in create_user:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
 @app.get("/users")
-def get_users(company_id: Optional[str] = None, status: Optional[str] = None, _: str = Depends(get_current_user)):
-    query = {"is_deleted": False}  # Add this condition
+@limiter.limit(get_rate_limit("admin"))
+async def get_users(
+    request: Request,
+    company_id: Optional[str] = None, 
+    status: Optional[str] = None, 
+    _: str = Depends(get_current_user)
+):
+    query = {"is_deleted": False}
     if company_id:
         query["company_id"] = company_id
     if status:
         query["status"] = status
         
     items = []
-    for doc in col_company_users.find(query, {"_id": 0}):
+    async for doc in col_company_users.find(query, {"_id": 0}):
         items.append(doc)
     return items
+
 @app.get("/users/{user_id}")
-def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_user(
+    request: Request,
+    user_id: str, 
+    current_user: dict = Depends(get_current_user)
+):
     # Users can only access their own data
     if current_user["role"] == "user" and current_user["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this user's data")
     
     # Add company_id check for company admins
     if current_user["role"] == "company_admin":
-        user = col_company_users.find_one({"id": user_id, "company_id": current_user["company_id"], "is_deleted": False}, {"_id": 0})
+        user = await col_company_users.find_one({"id": user_id, "company_id": current_user["company_id"], "is_deleted": False}, {"_id": 0})
     else:
-        user = col_company_users.find_one({"id": user_id, "is_deleted": False}, {"_id": 0})
+        user = await col_company_users.find_one({"id": user_id, "is_deleted": False}, {"_id": 0})
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     return user
+
 @app.patch("/users/{user_id}", response_model=UserResponse)
-def update_user(
+@limiter.limit(get_rate_limit("admin"))
+async def update_user(
+    request: Request,
     user_id: str, 
     user: UserUpdate, 
     current_user: dict = Depends(require_super_admin)
@@ -2155,15 +2037,15 @@ def update_user(
         raise HTTPException(status_code=400, detail="No fields to update")
 
     # Fetch old user record for audit
-    old_user = col_company_users.find_one({"id": user_id, "is_deleted": False})
+    old_user = await col_company_users.find_one({"id": user_id, "is_deleted": False})
     if not old_user:
         raise HTTPException(status_code=404, detail="User not found")
 
     # Update the user
-    updated = col_company_users.find_one_and_update(
+    updated = await col_company_users.find_one_and_update(
         {"id": user_id, "is_deleted": False},
         {"$set": update_data},
-        return_document=ReturnDocument.AFTER
+        return_document=True
     )
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update user")
@@ -2180,7 +2062,7 @@ def update_user(
 
     # Log audit trail only if something actually changed
     if old_data_for_audit:
-        log_audit_trail(
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -2195,27 +2077,27 @@ def update_user(
 
     return UserResponse(**updated)
 
-
 @app.delete("/users/{user_id}")
-def delete_user(
+@limiter.limit(get_rate_limit("admin"))
+async def delete_user(
+    request: Request,
     user_id: str, 
-    x_user_id: Optional[str] = Header(default=None), 
     current_user: dict = Depends(require_super_admin)
 ):
     # Fetch old user record for audit
-    old_user = col_company_users.find_one({"id": user_id, "is_deleted": False})
+    old_user = await col_company_users.find_one({"id": user_id, "is_deleted": False})
     
     if not old_user:
         raise HTTPException(status_code=404, detail="User not found")
 
     # Perform soft delete
-    success = soft_delete_company_user(user_id, current_user.get("user_id"))
+    success = await soft_delete_company_user(user_id, current_user.get("user_id"))
     
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete user")
 
     # Fetch new user record after soft delete
-    new_user = col_company_users.find_one({"id": user_id})
+    new_user = await col_company_users.find_one({"id": user_id})
 
     # Determine which fields changed
     audit_fields = ["is_deleted", "deleted_by", "deleted_at"]
@@ -2223,7 +2105,7 @@ def delete_user(
     new_data_for_audit = {k: new_user.get(k) for k in audit_fields if new_user and k in new_user}
 
     # Log audit trail only for changed fields
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -2238,10 +2120,10 @@ def delete_user(
 
     return {"message": "User deleted"}
 
-
-
 @app.patch("/users/{user_id}/status")
-def update_user_status(
+@limiter.limit(get_rate_limit("admin"))
+async def update_user_status(
+    request: Request,
     user_id: str, 
     body: UserStatusUpdate,
     admin_info: dict = Depends(require_company_admin_or_super_admin)
@@ -2255,7 +2137,7 @@ def update_user_status(
         query["company_id"] = admin_info["company_id"]
 
     # Fetch old user record for audit
-    old_user = col_company_users.find_one(query)
+    old_user = await col_company_users.find_one(query)
     if not old_user:
         raise HTTPException(status_code=404, detail="User not found or not authorized")
 
@@ -2268,7 +2150,7 @@ def update_user_status(
     }
 
     # Update user document
-    result = col_company_users.update_one(
+    result = await col_company_users.update_one(
         query,
         {
             "$set": {"status": body.status},
@@ -2279,14 +2161,14 @@ def update_user_status(
         raise HTTPException(status_code=404, detail="User not updated")
 
     # Fetch new user record for audit
-    new_user = col_company_users.find_one({"id": user_id})
+    new_user = await col_company_users.find_one({"id": user_id})
 
     # Determine changed fields for audit
     audit_old_data = {"status": old_user.get("status")}
     audit_new_data = {"status": new_user.get("status"), "status_reason": body.reason}
 
     # Log audit trail only if something changed
-    log_audit_trail(
+    await log_audit_trail(
         user_id=admin_info.get("user_id"),
         name=admin_info.get("name"),
         role=admin_info.get("role"),
@@ -2304,25 +2186,29 @@ def update_user_status(
         "history_entry": status_entry
     }
 
-
 @app.post("/users/{user_id}/restore")
-def restore_user_endpoint(user_id: str, current_user: dict = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def restore_user_endpoint(
+    request: Request,
+    user_id: str, 
+    current_user: dict = Depends(require_super_admin)
+):
     # Fetch old user record for audit
-    old_user = col_company_users.find_one({"id": user_id, "is_deleted": True})
+    old_user = await col_company_users.find_one({"id": user_id, "is_deleted": True})
     if not old_user:
         raise HTTPException(status_code=404, detail="User not found or not deleted")
 
     restored_by = current_user.get("user_id", "system")
-    success = restore_company_user(user_id, restored_by)
+    success = await restore_company_user(user_id, restored_by)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to restore user")
 
     # Fetch new user record for audit
-    new_user = col_company_users.find_one({"id": user_id})
+    new_user = await col_company_users.find_one({"id": user_id})
 
     # Determine changed fields only (here mainly is_deleted and maybe status)
     changed_fields = {}
-    for field in ["is_deleted", "status", "status_reason"]:  # add other fields if needed
+    for field in ["is_deleted", "status", "status_reason"]:
         old_value = old_user.get(field)
         new_value = new_user.get(field)
         if old_value != new_value:
@@ -2334,7 +2220,7 @@ def restore_user_endpoint(user_id: str, current_user: dict = Depends(require_sup
 
     # Log audit trail
     if changed_fields:
-        log_audit_trail(
+        await log_audit_trail(
             user_id=restored_by,
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -2350,29 +2236,6 @@ def restore_user_endpoint(user_id: str, current_user: dict = Depends(require_sup
     return {"message": "User restored successfully"}
 
 
-# @app.post("/users/bulk-status")
-# def bulk_update_users_status(
-#     data: BulkStatusUpdate, 
-#     admin_info: dict = Depends(require_company_admin_or_super_admin)
-# ):
-#     if data.status not in ["active", "inactive"]:
-#         raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
-    
-#     # Build query based on admin role
-#     query = {"id": {"$in": data.ids}, "is_deleted": False}
-    
-#     # If user is company_admin, they can only update users in their own company
-#     if admin_info["role"] == "company_admin":
-#         query["company_id"] = admin_info["company_id"]
-    
-#     result = col_company_users.update_many(
-#         query,
-#         {"$set": {"status": data.status}}
-#     )
-    
-#     return {"message": f"Updated {result.modified_count} users to {data.status}"}
-
-
 # --------------------
 # Resume Analysis Routes
 # --------------------
@@ -2380,7 +2243,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 @app.post("/analyze")
+@limiter.limit(get_rate_limit("high_traffic"))
 async def analyze_resume_endpoint(
+    request: Request,
     resume: UploadFile = File(..., description="Resume file (.pdf or .docx)"),
     jd_data: str = Form(..., description="JSON string for JDData"),
     current_user: dict = Depends(get_current_user)
@@ -2394,10 +2259,12 @@ async def analyze_resume_endpoint(
     content = await resume.read()
     page_count = count_pages(content, resume.filename)
 
-    if not check_usage_limit(current_user["company_id"], page_count):
+    if not await check_usage_limit(current_user["company_id"], page_count):
+        current_usage = await get_current_month_usage(current_user["company_id"])
+        page_limit = await get_company_page_limit(current_user["company_id"])
         raise HTTPException(
             status_code=429, 
-            detail=f"Monthly page limit exceeded. Current usage: {get_current_month_usage(current_user['company_id'])}/{get_company_page_limit(current_user['company_id'])}"
+            detail=f"Monthly page limit exceeded. Current usage: {current_usage}/{page_limit}"
         )
     
     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(resume.filename)[1]) as tmp:
@@ -2405,35 +2272,37 @@ async def analyze_resume_endpoint(
         tmp_path = tmp.name
 
     try:
-        company = col_companies.find_one(
+        company = await col_companies.find_one(
             {"id": current_user["company_id"], "is_deleted": False},
             {"gemini_api_key": 1, "llama_api_key": 1, "gemini_model": 1}
         )
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
         
-        parser_json = initialize_llama_parser("json", company.get("llama_api_key"))
-        resume_text = parse_resume(tmp_path, parser_json)
+        # Note: These parsing functions might need to be wrapped in asyncio.to_thread if they're synchronous
+        parser_json = await initialize_llama_parser("json", company.get("llama_api_key"))
+        resume_text = await parse_resume(tmp_path, parser_json)
         if not resume_text:
-            parser_text = initialize_llama_parser("text", company.get("llama_api_key"))
-            resume_text = parse_resume(tmp_path, parser_text)
+            parser_text = await initialize_llama_parser("text", company.get("llama_api_key"))
+            resume_text = await parse_resume(tmp_path, parser_text)
         if not resume_text:
             raise HTTPException(status_code=422, detail="❌ Failed to parse resume")
 
-        gemini_model = initialize_gemini(
+        gemini_model = await initialize_gemini(
             company.get("gemini_api_key"), 
             company.get("gemini_model", "gemini-2.0-flash")
         )
+        
 
         jd_for_gemini = jd.dict()
         for key in ["location", "budget", "number_of_positions", "work_mode"]:
             jd_for_gemini.pop(key, None)
 
-        analysis = analyze_resume_comprehensive(
+        analysis = await analyze_resume_comprehensive(
             resume_text, jd_for_gemini, gemini_model, company.get("gemini_api_key")
         )
 
-        store_key = store_results_in_mongodb(
+        store_key = await store_results_in_mongodb(
             analysis,
             jd.dict(),
             resume.filename,
@@ -2446,13 +2315,13 @@ async def analyze_resume_endpoint(
             current_user.get("name"),
             current_user.get("role")
         )
-        increment_usage(current_user["company_id"], page_count)
+        await increment_usage(current_user["company_id"], page_count)
 
         # ------------------ AUDIT LOG ------------------
         new_data_for_audit = {
             k: v for k, v in analysis.items() if k != "file_content"
         }
-        log_audit_trail(
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -2480,16 +2349,24 @@ async def analyze_resume_endpoint(
         except Exception:
             pass
 
-
 @app.get("/history")
-def list_history(current_user: dict = Depends(get_current_user)) -> List[Dict[str, Any]]:
-    return fetch_analysis_history(current_user)
+@limiter.limit(get_rate_limit("admin"))
+async def list_history(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+) -> List[Dict[str, Any]]:
+    return await fetch_analysis_history(current_user)
 
 @app.get("/download/{analysis_id}")
-async def download_resume(analysis_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def download_resume(
+    request: Request,
+    analysis_id: str, 
+    current_user: dict = Depends(get_current_user)
+):
     try:
         # Get analysis record
-        analysis = db.analysis_history.find_one({
+        analysis = await db.analysis_history.find_one({
             "analysis_id": analysis_id,
             "company_id": current_user["company_id"]
         })
@@ -2514,25 +2391,42 @@ async def download_resume(analysis_id: str, current_user: dict = Depends(get_cur
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
-
+    
 @app.get("/clients")
-def list_clients(current_user: dict = Depends(get_current_user)) -> List[str]:
-    return fetch_client_names(current_user["company_id"])
+@limiter.limit(get_rate_limit("admin"))
+async def list_clients(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+) -> List[str]:
+    return await fetch_client_names(current_user["company_id"])
 
 @app.get("/clients/{client_name}/jds")
-def list_jd_names(client_name: str, current_user: dict = Depends(get_current_user)) -> List[str]:
-    jd_names = fetch_jd_names_for_client(client_name, current_user["company_id"])
+@limiter.limit(get_rate_limit("admin"))
+async def list_jd_names(
+    request: Request,
+    client_name: str, 
+    current_user: dict = Depends(get_current_user)
+) -> List[str]:
+    jd_names = await fetch_jd_names_for_client(client_name, current_user["company_id"])
     return jd_names or []
 
 @app.get("/clients/{client_name}/jds/{jd_title}")
-def get_jd_details(client_name: str, jd_title: str, current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
-    jd = fetch_client_details_by_jd(client_name, jd_title, current_user["company_id"])
+@limiter.limit(get_rate_limit("admin"))
+async def get_jd_details(
+    request: Request,
+    client_name: str, 
+    jd_title: str, 
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    jd = await fetch_client_details_by_jd(client_name, jd_title, current_user["company_id"])
     if not jd:
         raise HTTPException(status_code=404, detail="JD not found")
     return jd
 
 @app.put("/clients/{client_name}/jds/{jd_title}")
-def put_update_jd(
+@limiter.limit(get_rate_limit("admin"))
+async def put_update_jd(
+    request: Request,
     client_name: str, 
     jd_title: str, 
     body: UpdateJD, 
@@ -2540,17 +2434,17 @@ def put_update_jd(
 ) -> Dict[str, Any]:
 
     # Fetch existing JD document
-    client_doc = db.clients.find_one({
-        "client_name": to_init_caps(client_name),
+    client_doc = await db.clients.find_one({
+        "client_name": await to_init_caps(client_name),
         "company_id": current_user["company_id"],
         "is_deleted": False
     })
     if not client_doc:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    jd_doc = db.job_descriptions.find_one({
+    jd_doc = await db.job_descriptions.find_one({
         "client_id": client_doc["_id"],
-        "jd_title": to_init_caps(jd_title),
+        "jd_title": await to_init_caps(jd_title),
         "company_id": current_user["company_id"],
         "is_deleted": False
     })
@@ -2569,7 +2463,7 @@ def put_update_jd(
         raise HTTPException(status_code=400, detail="No changes detected")
 
     # Update JD document
-    update_success = update_job_description(
+    update_success = await update_job_description(
         client_name,
         jd_title,
         body.required_experience,
@@ -2585,7 +2479,7 @@ def put_update_jd(
     new_data_for_audit = {k: v["new"] for k, v in changed_fields.items()}
 
     # Log audit trail
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -2600,24 +2494,27 @@ def put_update_jd(
 
     return {"ok": True}
 
-
-
 @app.post("/analysis/{analysis_id}/restore")
-def restore_analysis_endpoint(analysis_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def restore_analysis_endpoint(
+    request: Request,
+    analysis_id: str, 
+    current_user: dict = Depends(get_current_user)
+):
     # Fetch old data for audit
-    old_data = db.analysis_history.find_one({"analysis_id": analysis_id})
+    old_data = await db.analysis_history.find_one({"analysis_id": analysis_id})
     if not old_data or not old_data.get("is_deleted", True):
         raise HTTPException(status_code=404, detail="Analysis not found or not deleted")
     
-    success = restore_analysis(analysis_id, current_user["company_id"], current_user["user_id"])
+    success = await restore_analysis(analysis_id, current_user["company_id"], current_user["user_id"])
     if not success:
         raise HTTPException(status_code=500, detail="Failed to restore analysis")
 
     # Fetch new data for audit
-    new_data = db.analysis_history.find_one({"analysis_id": analysis_id})
+    new_data = await db.analysis_history.find_one({"analysis_id": analysis_id})
 
     # Log audit
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -2632,26 +2529,30 @@ def restore_analysis_endpoint(analysis_id: str, current_user: dict = Depends(get
 
     return {"message": "Analysis restored"}
 
-
 @app.post("/clients/{client_name}/restore")
-def restore_client_endpoint(client_name: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def restore_client_endpoint(
+    request: Request,
+    client_name: str, 
+    current_user: dict = Depends(get_current_user)
+):
     # Fetch old client for audit
-    old_client = db.clients.find_one({
-        "client_name": to_init_caps(client_name),
+    old_client = await db.clients.find_one({
+        "client_name": await to_init_caps(client_name),
         "company_id": current_user["company_id"],
         "is_deleted": True
     })
     if not old_client:
         raise HTTPException(status_code=404, detail="Client not found or not deleted")
 
-    success = restore_client(client_name, current_user["company_id"], current_user["user_id"])
+    success = await restore_client(client_name, current_user["company_id"], current_user["user_id"])
     if not success:
         raise HTTPException(status_code=500, detail="Failed to restore client")
 
     # Fetch new client for audit
-    new_client = db.clients.find_one({"_id": old_client["_id"]})
+    new_client = await db.clients.find_one({"_id": old_client["_id"]})
 
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -2666,26 +2567,31 @@ def restore_client_endpoint(client_name: str, current_user: dict = Depends(get_c
 
     return {"message": "Client restored"}
 
-
 @app.post("/clients/{client_name}/jds/{jd_title}/restore")
-def restore_jd_endpoint(client_name: str, jd_title: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def restore_jd_endpoint(
+    request: Request,
+    client_name: str, 
+    jd_title: str, 
+    current_user: dict = Depends(get_current_user)
+):
     # Fetch old JD for audit
-    old_jd = db.job_descriptions.find_one({
-        "jd_title": to_init_caps(jd_title),
+    old_jd = await db.job_descriptions.find_one({
+        "jd_title": await to_init_caps(jd_title),
         "company_id": current_user["company_id"],
         "is_deleted": True
     })
     if not old_jd:
         raise HTTPException(status_code=404, detail="Job description not found or not deleted")
 
-    success = restore_jd(client_name, jd_title, current_user["company_id"], current_user["user_id"])
+    success = await restore_jd(client_name, jd_title, current_user["company_id"], current_user["user_id"])
     if not success:
         raise HTTPException(status_code=500, detail="Failed to restore job description")
 
     # Fetch new JD for audit
-    new_jd = db.job_descriptions.find_one({"_id": old_jd["_id"]})
+    new_jd = await db.job_descriptions.find_one({"_id": old_jd["_id"]})
 
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -2700,14 +2606,14 @@ def restore_jd_endpoint(client_name: str, jd_title: str, current_user: dict = De
 
     return {"message": "Job description restored"}
 
-
-
 # --------------------
 # Client Management Endpoints
 # --------------------
 
 @app.get("/clients/table-data")
-def get_clients_table_data(
+@limiter.limit(get_rate_limit("admin"))
+async def get_clients_table_data(
+    request: Request,
     status: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
@@ -2722,14 +2628,15 @@ def get_clients_table_data(
         if status:
             client_query["status"] = status
             
-        clients = list(db.clients.find(client_query).sort("client_name", 1))
+        clients_cursor = db.clients.find(client_query).sort("client_name", 1)
+        clients = await clients_cursor.to_list(length=None)
         
         result = []
         for client in clients:
             # Get active JDs count for active clients
             jd_count = 0
             if client.get("status") == "active":
-                jd_count = db.job_descriptions.count_documents({
+                jd_count = await db.job_descriptions.count_documents({
                     "client_id": client["_id"],
                     "company_id": current_user["company_id"],
                     "is_deleted": False,
@@ -2750,7 +2657,9 @@ def get_clients_table_data(
         raise HTTPException(status_code=500, detail=f"Failed to fetch clients: {str(e)}")
 
 @app.get("/job-descriptions/{client_id}")
-def get_job_descriptions_for_client(
+@limiter.limit(get_rate_limit("admin"))
+async def get_job_descriptions_for_client(
+    request: Request,
     client_id: str,
     current_user: dict = Depends(get_current_user)
 ):
@@ -2760,7 +2669,7 @@ def get_job_descriptions_for_client(
         client_oid = ObjectId(client_id)
         
         # Check if client exists and is active
-        client = db.clients.find_one({
+        client = await db.clients.find_one({
             "_id": client_oid,
             "company_id": current_user["company_id"],
             "is_deleted": False,
@@ -2771,12 +2680,14 @@ def get_job_descriptions_for_client(
             raise HTTPException(status_code=404, detail="Active client not found")
         
         # Get all active JDs for this client
-        jds = list(db.job_descriptions.find({
+        jds_cursor = db.job_descriptions.find({
             "client_id": client_oid,
             "company_id": current_user["company_id"],
             "is_deleted": False,
             "status": "active"
-        }).sort("jd_title", 1))
+        }).sort("jd_title", 1)
+        
+        jds = await jds_cursor.to_list(length=None)
         
         jd_list = []
         for jd in jds:
@@ -2802,7 +2713,9 @@ def get_job_descriptions_for_client(
         raise HTTPException(status_code=500, detail=f"Failed to fetch job descriptions: {str(e)}")
 
 @app.put("/clients/{client_id}")
-def update_client(
+@limiter.limit(get_rate_limit("admin"))
+async def update_client(
+    request: Request,
     client_id: str,
     client_data: dict,
     current_user: dict = Depends(get_current_user)
@@ -2813,7 +2726,7 @@ def update_client(
         client_oid = ObjectId(client_id)
 
         # Fetch old client for audit
-        old_client = db.clients.find_one({
+        old_client = await db.clients.find_one({
             "_id": client_oid,
             "company_id": current_user["company_id"],
             "is_deleted": False
@@ -2825,7 +2738,7 @@ def update_client(
         new_name = client_data.get("name", old_client["client_name"])
 
         # Update client name
-        result = db.clients.update_one(
+        result = await db.clients.update_one(
             {"_id": client_oid},
             {"$set": {"client_name": new_name, "updated_at": datetime.now()}}
         )
@@ -2833,10 +2746,10 @@ def update_client(
             raise HTTPException(status_code=400, detail="Failed to update client")
 
         # Fetch new client data for audit
-        new_client = db.clients.find_one({"_id": client_oid})
+        new_client = await db.clients.find_one({"_id": client_oid})
 
         # Log audit trail (only changed data)
-        log_audit_trail(
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -2856,10 +2769,10 @@ def update_client(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update client: {str(e)}")
 
-
-
 @app.patch("/clients/{client_id}/status")
-def update_client_status(
+@limiter.limit(get_rate_limit("admin"))
+async def update_client_status(
+    request: Request,
     client_id: str, 
     status: str = Query(..., description="Status to set"), 
     current_user: dict = Depends(get_current_user)
@@ -2873,7 +2786,7 @@ def update_client_status(
         client_oid = ObjectId(client_id)
         
         # Fetch old client for audit
-        old_client = db.clients.find_one({
+        old_client = await db.clients.find_one({
             "_id": client_oid,
             "company_id": current_user["company_id"],
             "is_deleted": False
@@ -2885,7 +2798,7 @@ def update_client_status(
         old_status = old_client.get("status")
         
         # Update client status
-        result = db.clients.update_one(
+        result = await db.clients.update_one(
             {"_id": client_oid},
             {"$set": {"status": status}}
         )
@@ -2894,11 +2807,11 @@ def update_client_status(
             raise HTTPException(status_code=400, detail="Failed to update client status")
         
         # Fetch new client data for audit
-        new_client = db.clients.find_one({"_id": client_oid})
+        new_client = await db.clients.find_one({"_id": client_oid})
         new_status = new_client.get("status")
 
         # Log audit trail (only changed field)
-        log_audit_trail(
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -2916,12 +2829,10 @@ def update_client_status(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update client status: {str(e)}")
 
-
-from fastapi import FastAPI, Body, Depends, HTTPException
-from bson import ObjectId
-
 @app.put("/job-descriptions/{jd_id}")
-def update_job_description_endpoint(
+@limiter.limit(get_rate_limit("admin"))
+async def update_job_description_endpoint(
+    request: Request,
     jd_id: str,
     jd_data: dict = Body(...),  # Incoming update fields
     current_user: dict = Depends(get_current_user)
@@ -2930,14 +2841,14 @@ def update_job_description_endpoint(
     jd_oid = ObjectId(jd_id)
 
     # Fetch old JD for audit
-    old_jd = db.job_descriptions.find_one(
+    old_jd = await db.job_descriptions.find_one(
         {"_id": jd_oid, "company_id": current_user["company_id"], "is_deleted": False}
     )
     if not old_jd:
         raise HTTPException(status_code=404, detail="Job description not found")
 
     # Update JD
-    result = db.job_descriptions.update_one(
+    result = await db.job_descriptions.update_one(
         {"_id": jd_oid, "company_id": current_user["company_id"]},
         {"$set": jd_data}
     )
@@ -2945,7 +2856,7 @@ def update_job_description_endpoint(
         raise HTTPException(status_code=400, detail="Nothing updated")
 
     # Fetch new JD after update
-    new_jd = db.job_descriptions.find_one({"_id": jd_oid})
+    new_jd = await db.job_descriptions.find_one({"_id": jd_oid})
 
     # Determine only changed fields
     changed_fields = {}
@@ -2959,7 +2870,7 @@ def update_job_description_endpoint(
         return {"message": "No actual changes detected"}
 
     # Log only changed fields
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -2977,23 +2888,28 @@ def update_job_description_endpoint(
         "changed_fields": changed_fields
     }
 
-
 # --------------------
 # Dashboard & Usage Routes
 # --------------------
 @app.get("/dashboard")
-def get_dashboard_data(current_user: dict = Depends(get_current_user)):
-    companies_count = col_companies.count_documents({"is_deleted": False, "status": "active"})
-    users_count = col_company_users.count_documents({"is_deleted": False, "status": "active"})
-    inactive_companies_count = col_companies.count_documents({"is_deleted": False, "status": "inactive"})
-    inactive_users_count = col_company_users.count_documents({"is_deleted": False, "status": "inactive"})
+@limiter.limit(get_rate_limit("admin"))
+async def get_dashboard_data(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    companies_count = await col_companies.count_documents({"is_deleted": False, "status": "active"})
+    users_count = await col_company_users.count_documents({"is_deleted": False, "status": "active"})
+    inactive_companies_count = await col_companies.count_documents({"is_deleted": False, "status": "inactive"})
+    inactive_users_count = await col_company_users.count_documents({"is_deleted": False, "status": "inactive"})
     
     # Get total usage statistics
     total_limit = 0
     total_usage = 0
-    for company in col_companies.find({"is_deleted": False, "status": "active"}, {"id": 1, "monthly_page_limit": 1}):
+    companies_cursor = col_companies.find({"is_deleted": False, "status": "active"}, {"id": 1, "monthly_page_limit": 1})
+    
+    async for company in companies_cursor:
         total_limit += company.get("monthly_page_limit", 1000)
-        total_usage += get_current_month_usage(company["id"])
+        total_usage += await get_current_month_usage(company["id"])
     
     return {
         "companies_count": companies_count,
@@ -3006,14 +2922,22 @@ def get_dashboard_data(current_user: dict = Depends(get_current_user)):
     }
 
 @app.get("/usage/stats")
-def get_my_usage_stats(current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_my_usage_stats(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """Get usage statistics for the current user's company"""
-    return get_usage_stats(current_user["company_id"])
+    return await get_usage_stats(current_user["company_id"])
 
 @app.get("/usage/notifications")
-def get_usage_notifications(current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_usage_notifications(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """Get usage notifications for the company"""
-    usage_stats = get_usage_stats(current_user["company_id"])
+    usage_stats = await get_usage_stats(current_user["company_id"])
     notifications = []
     
     if usage_stats["usage_percentage"] >= 90:
@@ -3030,18 +2954,23 @@ def get_usage_notifications(current_user: dict = Depends(get_current_user)):
     return notifications
 
 @app.post("/usage/reset/{company_id}")
-def reset_company_usage(company_id: str, current_user: dict = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def reset_company_usage(
+    request: Request,
+    company_id: str, 
+    current_user: dict = Depends(require_super_admin)
+):
     """Reset company's usage for testing (admin only)"""
     current_month = datetime.now().strftime("%Y-%m")
 
     # Fetch old usage for audit
-    old_usage = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+    old_usage = await db.company_usage.find_one({"company_id": company_id, "month": current_month})
     if not old_usage:
         raise HTTPException(status_code=404, detail="Usage record not found")
 
     # Perform reset
     new_usage_data = {"page_count": 0, "last_updated": datetime.now()}
-    result = db.company_usage.update_one(
+    result = await db.company_usage.update_one(
         {"company_id": company_id, "month": current_month},
         {"$set": new_usage_data}
     )
@@ -3050,7 +2979,7 @@ def reset_company_usage(company_id: str, current_user: dict = Depends(require_su
         raise HTTPException(status_code=400, detail="Failed to reset usage")
 
     # Fetch new usage for audit
-    new_usage = db.company_usage.find_one({"company_id": company_id, "month": current_month})
+    new_usage = await db.company_usage.find_one({"company_id": company_id, "month": current_month})
 
     # Detect changed fields only
     changed_fields = {}
@@ -3064,7 +2993,7 @@ def reset_company_usage(company_id: str, current_user: dict = Depends(require_su
         return {"message": "No changes detected"}
 
     # Log only modified fields
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -3087,44 +3016,67 @@ def reset_company_usage(company_id: str, current_user: dict = Depends(require_su
 # Deleted Items Routes
 # --------------------
 @app.get("/deleted/companies")
-def get_deleted_companies_endpoint(_: str = Depends(require_super_admin)):
-    return list(col_companies.find({"is_deleted": True}, {"_id": 0}))
+@limiter.limit(get_rate_limit("admin"))
+async def get_deleted_companies_endpoint(
+    request: Request,
+    _: str = Depends(require_super_admin)
+):
+    companies_cursor = col_companies.find({"is_deleted": True}, {"_id": 0})
+    return await companies_cursor.to_list(length=None)
 
 @app.get("/deleted/users")
-def get_deleted_users_endpoint(company_id: Optional[str] = None, _: str = Depends(require_super_admin)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_deleted_users_endpoint(
+    request: Request,
+    company_id: Optional[str] = None, 
+    _: str = Depends(require_super_admin)
+):
     query = {"is_deleted": True}
     if company_id:
         query["company_id"] = company_id
-    return list(col_company_users.find(query, {"_id": 0}))
+    users_cursor = col_company_users.find(query, {"_id": 0})
+    return await users_cursor.to_list(length=None)
 
 @app.get("/deleted/analysis")
-def get_deleted_analyses_endpoint(current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_deleted_analyses_endpoint(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user["role"] != "company_admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    return list(db.analysis_history.find({
+    analyses_cursor = db.analysis_history.find({
         "company_id": current_user["company_id"],
         "is_deleted": True
-    }, {"file_content": 0}))
+    }, {"file_content": 0})
+    return await analyses_cursor.to_list(length=None)
 
 # --------------------
 # Health & Root Routes
 # --------------------
 
-
 @app.get("/")
-def root() -> Dict[str, Any]:
+@limiter.limit("120/minute")
+async def root(request: Request) -> Dict[str, Any]:
     return {"message": "API is running"}
 
 @app.get("/ui")
-def render_ui(request: Request):
+@limiter.limit("120/minute")
+async def render_ui(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
 @app.get("/super-admin-dashboard", response_class=HTMLResponse)
+@limiter.limit("120/minute")
 async def super_admin_dashboard(request: Request):
     return templates.TemplateResponse("super-admin-dashboard.html", {"request": request})
+
 @app.get("/company-dashboard", response_class=HTMLResponse)
+@limiter.limit("120/minute")
 async def company_dashboard(request: Request):
     return templates.TemplateResponse("company-dashboard.html", {"request": request})
+
 @app.get("/user-dashboard", response_class=HTMLResponse)
+@limiter.limit("120/minute")
 async def user_dashboard(request: Request):
     return templates.TemplateResponse("user-dashboard.html", {"request": request})
 
@@ -3132,48 +3084,64 @@ async def user_dashboard(request: Request):
 # Startup Event
 # --------------------
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     _ensure_env_loaded()
-    # Initialize Supabase client (module import also initializes it)
     os.makedirs("logos", exist_ok=True)
     os.makedirs("logos/users", exist_ok=True)
     try:
-        #initialize_supabase()
-        initialize_mongodb()
-        auto_reset_monthly_usage()
-    except Exception:
+        await initialize_mongodb()
+        await auto_reset_monthly_usage()
+    except Exception as e:
+        print(f"Startup error: {e}")
         # Defer errors to first DB call
-        pass
     # Initialize Gemini model once
     try:
-        app.state.gemini_model = initialize_gemini()
+        app.state.gemini_model = await initialize_gemini()
     except Exception as e:
         app.state.gemini_model = None
         print(f"Gemini not initialized: {e}")
+
 #-----country and state ----
 @app.get("/countries")
-def get_countries(_: str = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_countries(
+    request: Request,
+    _: str = Depends(get_current_user)
+):
     """
     ✅ Returns all countries
     Accessible by any authenticated user
     """
-    return list(db.countries.find({}, {"_id": 0}))
-
+    countries_cursor = db.countries.find({}, {"_id": 0})
+    return await countries_cursor.to_list(length=None)
 
 @app.get("/countries/{country_id}/states")
-def get_states(country_id: str, _: str = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_states(
+    request: Request,
+    country_id: str, 
+    _: str = Depends(get_current_user)
+):
     """
     ✅ Returns all states for a country
     Accessible by any authenticated user
     """
-    return list(db.states.find({"country_id": country_id}, {"_id": 0}))
+    states_cursor = db.states.find({"country_id": country_id}, {"_id": 0})
+    return await states_cursor.to_list(length=None)
+
 # --------------------
 # Bank Management Routes
 # --------------------
 @app.post("/banks", response_model=BankResponse)
-def create_bank(bank: BankCreate, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def create_bank(
+    request: Request,
+    bank: BankCreate, 
+    current_user: dict = Depends(get_current_user)
+):
     # Check if bank already exists
-    if col_banks.find_one({"bank_name": bank.bank_name, "is_deleted": False}):
+    existing_bank = await col_banks.find_one({"bank_name": bank.bank_name, "is_deleted": False})
+    if existing_bank:
         raise HTTPException(status_code=400, detail="Bank name already exists")
     
     now_iso = datetime.now().isoformat()
@@ -3192,10 +3160,10 @@ def create_bank(bank: BankCreate, current_user: dict = Depends(get_current_user)
     }
 
     # Insert bank
-    col_banks.insert_one(bank_doc)
+    await col_banks.insert_one(bank_doc)
 
     # ✅ Audit trail for creation
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -3210,20 +3178,30 @@ def create_bank(bank: BankCreate, current_user: dict = Depends(get_current_user)
 
     return BankResponse(**bank_doc)
 
-
 @app.get("/banks")
-def get_banks(status: Optional[str] = None, _: str = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def get_banks(
+    request: Request,
+    status: Optional[str] = None, 
+    _: str = Depends(get_current_user)
+):
     query = {"is_deleted": False}
     if status:
         query["status"] = status
         
     items = []
-    for doc in col_banks.find(query, {"_id": 0}).sort("bank_name", 1):
+    async for doc in col_banks.find(query, {"_id": 0}).sort("bank_name", 1):
         items.append(doc)
     return items
 
 @app.patch("/banks/{bank_id}", response_model=BankResponse)
-def update_bank(bank_id: str, bank: BankUpdate, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def update_bank(
+    request: Request,
+    bank_id: str, 
+    bank: BankUpdate, 
+    current_user: dict = Depends(get_current_user)
+):
     update_data = {k: v for k, v in bank.dict(exclude_unset=True).items() if v is not None}
     
     if not update_data:
@@ -3233,15 +3211,15 @@ def update_bank(bank_id: str, bank: BankUpdate, current_user: dict = Depends(get
     update_data["updated_at"] = datetime.now().isoformat()
     
     # Fetch old data for audit
-    old_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    old_bank = await col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
     if not old_bank:
         raise HTTPException(status_code=404, detail="Bank not found")
     
     # Update bank
-    updated = col_banks.find_one_and_update(
+    updated = await col_banks.find_one_and_update(
         {"id": bank_id, "is_deleted": False},
         {"$set": update_data},
-        return_document=ReturnDocument.AFTER,
+        return_document=True,
         projection={"_id": 0}
     )
     
@@ -3257,7 +3235,7 @@ def update_bank(bank_id: str, bank: BankUpdate, current_user: dict = Depends(get
     
     # Log audit only if something changed
     if changed_fields_old:
-        log_audit_trail(
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -3272,10 +3250,10 @@ def update_bank(bank_id: str, bank: BankUpdate, current_user: dict = Depends(get
     
     return BankResponse(**updated)
 
-
-
 @app.patch("/banks/{bank_id}/status")
-def update_bank_status(
+@limiter.limit(get_rate_limit("admin"))
+async def update_bank_status(
+    request: Request,
     bank_id: str, 
     status: str = Query(..., description="Status to set"), 
     current_user: dict = Depends(get_current_user)
@@ -3284,14 +3262,14 @@ def update_bank_status(
         raise HTTPException(status_code=400, detail="Status must be 'active' or 'inactive'")
 
     # Fetch old bank for audit
-    old_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    old_bank = await col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
     if not old_bank:
         raise HTTPException(status_code=404, detail="Bank not found")
 
     old_status = old_bank.get("status")
 
     # Update status
-    result = col_banks.update_one(
+    result = await col_banks.update_one(
         {"id": bank_id, "is_deleted": False},
         {"$set": {"status": status, "updated_at": datetime.now().isoformat()}}
     )
@@ -3300,12 +3278,12 @@ def update_bank_status(
         raise HTTPException(status_code=404, detail="Bank not updated")
 
     # Fetch new bank for audit
-    new_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    new_bank = await col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
     new_status = new_bank.get("status")
 
     # Log audit only if changed
     if old_status != new_status:
-        log_audit_trail(
+        await log_audit_trail(
             user_id=current_user.get("user_id"),
             name=current_user.get("name"),
             role=current_user.get("role"),
@@ -3320,12 +3298,15 @@ def update_bank_status(
 
     return {"message": f"Bank status updated to {status}"}
 
-
-
 @app.delete("/banks/{bank_id}")
-def delete_bank(bank_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit(get_rate_limit("admin"))
+async def delete_bank(
+    request: Request,
+    bank_id: str, 
+    current_user: dict = Depends(get_current_user)
+):
     # Fetch old bank for audit
-    old_bank = col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
+    old_bank = await col_banks.find_one({"id": bank_id, "is_deleted": False}, {"_id": 0})
     if not old_bank:
         raise HTTPException(status_code=404, detail="Bank not found")
 
@@ -3338,7 +3319,7 @@ def delete_bank(bank_id: str, current_user: dict = Depends(get_current_user)):
     }
 
     # Soft delete the bank
-    result = col_banks.update_one(
+    result = await col_banks.update_one(
         {"id": bank_id, "is_deleted": False},
         {"$set": updated_fields}
     )
@@ -3347,13 +3328,13 @@ def delete_bank(bank_id: str, current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Bank not deleted")
 
     # Fetch new bank for audit
-    new_bank = col_banks.find_one({"id": bank_id}, {"_id": 0})
+    new_bank = await col_banks.find_one({"id": bank_id}, {"_id": 0})
 
     # Log only changed fields
     changed_old_data = {k: old_bank.get(k) for k in updated_fields.keys()}
     changed_new_data = {k: new_bank.get(k) for k in updated_fields.keys()}
 
-    log_audit_trail(
+    await log_audit_trail(
         user_id=current_user.get("user_id"),
         name=current_user.get("name"),
         role=current_user.get("role"),
@@ -3364,10 +3345,27 @@ def delete_bank(bank_id: str, current_user: dict = Depends(get_current_user)):
         old_data=changed_old_data,
         new_data=changed_new_data,
         screen="super admin"  
-        )
+    )
 
     return {"message": "Bank deleted"}
 
+#rate limit exception handler
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    retry_after = getattr(exc, "retry_after", 60)  # default 60 seconds if missing
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error_code": 429,
+            "message": "Too many requests. Please slow down.",
+            "detail": f"Rate limit exceeded. Try again in {retry_after} seconds",
+        },
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 # --------------------
