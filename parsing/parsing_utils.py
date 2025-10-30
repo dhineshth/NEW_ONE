@@ -84,6 +84,44 @@ def extract_email(resume_text: str) -> str:
     match = re.search(email_pattern, resume_text)
     return match.group(0) if match else "No email found"
 
+# ---------- Mobile Extraction ---------
+def extract_mobile_number(text: str) -> str:
+    """
+    Extract mobile number from resume text
+    Supports various formats: 
+    - 10-digit numbers
+    - Numbers with country codes
+    - Numbers with separators (spaces, hyphens, dots)
+    """
+    # Common patterns for mobile numbers
+    patterns = [
+        r'\b[6-9]\d{9}\b',  # 10-digit Indian numbers
+        r'\b\+91[\s-]?[6-9]\d{9}\b',  # +91 prefix
+        r'\b91[\s-]?[6-9]\d{9}\b',  # 91 prefix
+        r'\b0[\s-]?[6-9]\d{9}\b',  # 0 prefix
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        if matches:
+            # Clean the number - remove non-digit characters except +
+            clean_number = re.sub(r'[^\d+]', '', matches[0])
+            
+            # If it's a 10-digit number without country code, add +91
+            if len(clean_number) == 10 and clean_number[0] in '6789':
+                return f"+91{clean_number}"
+            elif len(clean_number) == 11 and clean_number.startswith('91'):
+                return f"+{clean_number}"
+            elif len(clean_number) == 11 and clean_number.startswith('0'):
+                return f"+91{clean_number[1:]}"
+            elif len(clean_number) == 12 and clean_number.startswith('91'):
+                return f"+{clean_number}"
+            elif clean_number.startswith('+91') and len(clean_number) == 13:
+                return clean_number
+            else:
+                return clean_number
+    
+    return ""
 
 # ---------- ASYNC FILE EXTRACTORS ----------
 async def extract_text_from_pdf(file_path: str) -> str:
@@ -135,7 +173,18 @@ async def extract_text(file_path: str) -> str:
     else:
         raise Exception("Unsupported file type.")
 
+async def parse_resume(file_path: str, parser: Optional[LlamaParse] = None) -> str:
+    """
+    Primary async parser. Tries LlamaParse first, falls back to pdfminer if it fails.
+    """
+    try:
+        if parser:
+            return await parse_resume_with_llama(file_path, parser)  # <-- await directly
+    except Exception:
+        pass
 
+    # fallback to pdfminer (sync, run in thread)
+    return await asyncio.to_thread(pdfminer_extract_text, file_path)
 # ---------- PRIMARY PARSER ----------
 # async def parse_resume(file_path: str, parser: Optional[LlamaParse] = None) -> str:
 #     """
@@ -152,17 +201,6 @@ async def extract_text(file_path: str) -> str:
 #     return await asyncio.to_thread(pdfminer_extract_text, file_path)
 
 
-async def parse_resume(file_path: str, parser: Optional[LlamaParse] = None) -> str:
-    """
-    Primary async parser. Tries LlamaParse first, falls back to pdfminer if it fails.
-    """
-    try:
-        if parser:
-            return await parse_resume_with_llama(file_path, parser)  # <-- await directly
-    except Exception:
-        pass
 
-    # fallback to pdfminer (sync, run in thread)
-    return await asyncio.to_thread(pdfminer_extract_text, file_path)
 
 

@@ -544,7 +544,15 @@
     border-radius: 8px;
     text-align: center;
 }
+.metric-card.frequent-hopper {
+    border-left: 4px solid #f6a732;
+    background: #fff3e0;
+}
 
+.metric-card.stable {
+    border-left: 4px solid #4caf50;
+    background: #e8f5e8;
+}
 .metric-title {
     font-size: 0.9rem;
     color: #6c757d;
@@ -556,9 +564,17 @@
     margin-top: 5px;
 }
 
-.match { background: #d4edda; color: #155724; }
-.no-match { background: #f8d7da; color: #721c24; }
+.metric-card.match {
+    border-left: 4px solid #28a745; /* green for match */
+    background: #d4edda;
+    color: #155724;
+}
 
+.metric-card.no-match {
+    border-left: 4px solid #dc3545; /* red for no match */
+    background: #f8d7da;
+    color: #721c24;
+}
 .table table {
     width: 100%;
     border-collapse: collapse;

@@ -371,7 +371,7 @@ function displayAuditLogs(logs, companyNameMap = {}) {
 function showFinancialYearGraph() {
     document.getElementById('statsCards').style.display = 'flex';
     updateActiveNavLink('dashboard');
-    document.getElementById('dataTitle').textContent = 'Companies Data';
+    document.getElementById('dataTitle').textContent = 'Clients Data';
     document.getElementById('dataFilterDropdown').style.display = 'none';
     document.getElementById('statusFilter').style.display = 'none';
     document.getElementById('companyFilter').style.display = 'none';
@@ -384,7 +384,7 @@ function showFinancialYearGraph() {
                 <div class="row mb-4">
                     <div class="col-md-6">
      
-                        <p class="text-muted">Monthly company registrations for selected financial year</p>
+                        <p class="text-muted">Onbaorded Clients in selected financial year</p>
                     </div>
                     <div class="col-md-6 text-end">
                         <div class="input-group" style="max-width: 300px; margin-left: auto;">
@@ -533,7 +533,7 @@ function createCompanyCreationChart(labels, monthlyCounts, financialYear) {
         data: {
             labels: labels,
             datasets: [{
-                label: `Company Registrations - FY ${financialYear}-${financialYear + 1}`,
+                label: `Onboarded Clients - FY ${financialYear}-${financialYear + 1}`,
                 data: data,
                 backgroundColor: 'rgba(54, 162, 235, 0.6)',
                 borderColor: 'rgba(54, 162, 235, 1)',
@@ -550,7 +550,7 @@ function createCompanyCreationChart(labels, monthlyCounts, financialYear) {
                     beginAtZero: true,
                     title: {
                         display: true,
-                        text: 'Number of Companies'
+                        text: 'Number of Clients'
                     },
                     ticks: {
                         stepSize: 1
@@ -559,7 +559,7 @@ function createCompanyCreationChart(labels, monthlyCounts, financialYear) {
                 x: {
                     title: {
                         display: true,
-                        text: 'Financial Year Months'
+                        text: `Apr ${financialYear} to Mar ${financialYear + 1}`
                     }
                 }
             },
@@ -571,7 +571,7 @@ function createCompanyCreationChart(labels, monthlyCounts, financialYear) {
                 tooltip: {
                     callbacks: {
                         label: function(context) {
-                            return `Companies: ${context.parsed.y}`;
+                            return `Clients: ${context.parsed.y}`;
                         }
                     }
                 }
@@ -925,7 +925,7 @@ async function loadCompaniesForSelect() {
             const select = document.getElementById("userCompany");
             const editSelect = document.getElementById("editUserCompany");
             
-            select.innerHTML = '<option value="">Select Company</option>';
+            select.innerHTML = '<option value="">Select Client</option>';
             if (editSelect) editSelect.innerHTML = '<option value="">Choose One</option>';
             
             companies.forEach(company => {
@@ -948,12 +948,12 @@ async function loadCompaniesForSelect() {
 }
 
 /**
- * Load companies with optional status filter
+ * Load companies with optional status filter 
  */
 async function loadCompanies(status = 'all') {
     document.getElementById('statsCards').style.display = 'none';
     updateActiveNavLink('companies');
-    document.getElementById('dataTitle').textContent = 'Companies';
+    document.getElementById('dataTitle').textContent = 'Clients';
     document.getElementById('dataFilterDropdown').style.display = 'block';
     document.getElementById('statusFilter').style.display = 'block';
     document.getElementById('companyFilter').style.display = 'none';
@@ -1022,7 +1022,7 @@ function displayCompanies(companies) {
                 <thead class="table-light">
                     <tr>
                         <th>S.No</th>
-                        <th>Company Name</th>
+                        <th>Client Name</th>
                         <th>Total Pages</th>
                         <th>Used Pages</th>
                         <th>Remaining Pages</th>
@@ -1095,59 +1095,144 @@ function displayCompanies(companies) {
         responsive: true,
         pageLength: 10,
         lengthMenu: [10, 25, 50, 100],
-        order: [[1, 'asc']], // order by Company Name
+        order: [[0, 'asc']], // order by Company Name
         language: {
-            search: "Search companies:",
-            lengthMenu: "Show _MENU_ companies per page",
-            info: "Showing _START_ to _END_ of _TOTAL_ companies",
-            infoEmpty: "No companies available",
+            search: "Search Clients:",
+            lengthMenu: "Show _MENU_ Clients per page",
+            info: "Showing _START_ to _END_ of _TOTAL_ clients",
+            infoEmpty: "No clients available",
             infoFiltered: "(filtered from _MAX_ total companies)"
         }
     });
 }
 
 /**
- * Toggle company status (active/inactive)
+ * Toggle company status (active/inactive) with reason
  */
 function toggleCompanyStatus(companyId, currentStatus, button) {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     const statusText = newStatus === 'active' ? 'Active' : 'Inactive';
     
-    if (confirm(`Are you sure you want to change this company's status to ${statusText}?`)) {
-        updateCompanyStatus(companyId, newStatus, button);
-    }
+    // Show custom confirmation modal with reason input
+    showCompanyStatusChangeModal(companyId, newStatus, statusText, button);
 }
 
 /**
- * Update company status via API
+ * Show company status change confirmation modal
  */
-async function updateCompanyStatus(companyId, status, dropdown) {
+function showCompanyStatusChangeModal(companyId, newStatus, statusText, button) {
+    const modalHtml = `
+        <div class="modal fade" id="companyStatusChangeModal" tabindex="-1" aria-labelledby="companyStatusChangeModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header ${newStatus === 'active' ? 'bg-success' : 'bg-danger'} text-white">
+                        <h5 class="modal-title" id="companyStatusChangeModalLabel">Confirm Client Status Change</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to change this client's status to <strong>${statusText}</strong>?</p>
+                        <div class="mb-3">
+                            <label for="companyStatusReasonInput" class="form-label">Reason for status change <span class="text-danger">*</span></label>
+                            <textarea class="form-control" id="companyStatusReasonInput" rows="3" placeholder="Enter reason for status change..." required></textarea>
+                            <div class="invalid-feedback">Please provide a reason for the status change.</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn ${newStatus === 'active' ? 'btn-success' : 'btn-danger'}" onclick="proceedCompanyStatusChange('${companyId}', '${newStatus}', this)">
+                            Confirm Change
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Add modal to DOM if it doesn't exist
+    if (!document.getElementById('companyStatusChangeModal')) {
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } else {
+        // Update existing modal
+        document.getElementById('companyStatusChangeModal').outerHTML = modalHtml;
+    }
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById('companyStatusChangeModal'));
+    modal.show();
+    
+    // Store button reference for later use
+    document.getElementById('companyStatusChangeModal').dataset.buttonId = companyId;
+}
+
+/**
+ * Proceed with company status change - Alternative approach
+ */
+async function proceedCompanyStatusChange(companyId, status, button) {
+    const reasonInput = document.getElementById('companyStatusReasonInput');
+    const reason = reasonInput.value.trim();
+    
+    // Validate reason
+    if (!reason) {
+        reasonInput.classList.add('is-invalid');
+        return;
+    }
+    
+    reasonInput.classList.remove('is-invalid');
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Updating...';
+    
     try {
-        const response = await apiFetch(`${API_BASE_URL}/companies/${companyId}/status?status=${status}`, {
+        const response = await apiFetch(`${API_BASE_URL}/companies/${companyId}/status`, {
             method: "PATCH",
             headers: {
                 "Content-Type": "application/json",
                 "X-User-Role": "super_admin"
-            }
+            },
+            body: JSON.stringify({ 
+                status: status,
+                reason: reason 
+            })
         });
 
         if (response.ok) {
-            showMessage(`Company status updated to ${status}`, "success");
-            // Update the current status attribute
-            dropdown.setAttribute('data-current-status', status);
+            showMessage(`Client status updated to ${status}`, "success");
+            
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('companyStatusChangeModal'));
+            modal.hide();
+            
+            // ✅ Get the original status button that was clicked
+            const originalStatusButton = document.querySelector(`button[onclick*="toggleCompanyStatus('${companyId}'"]`);
+            if (originalStatusButton) {
+                const icon = originalStatusButton.querySelector('i');
+                if (status === 'active') {
+                    icon.className = 'fas fa-toggle-on text-success';
+                    icon.title = 'Active';
+                    originalStatusButton.title = 'Active';
+                    // Update the onclick function for future clicks
+                    originalStatusButton.setAttribute('onclick', `toggleCompanyStatus('${companyId}', 'active', this)`);
+                } else {
+                    icon.className = 'fas fa-toggle-off text-danger';
+                    icon.title = 'Inactive';
+                    originalStatusButton.title = 'Inactive';
+                    // Update the onclick function for future clicks
+                    originalStatusButton.setAttribute('onclick', `toggleCompanyStatus('${companyId}', 'inactive', this)`);
+                }
+            }
+            
             loadDashboardData();
+            filterByStatus(status);
         } else {
             const errorText = await response.text();
-            showMessage(errorText || "Failed to update company status", "error");
-            // Reset dropdown on error
-            const currentStatus = dropdown.getAttribute('data-current-status');
-            dropdown.value = currentStatus;
+            showMessage(errorText || "Failed to update client status", "error");
+            
+            button.disabled = false;
+            button.innerHTML = 'Confirm Change';
         }
     } catch (error) {
-        showMessage("Error updating company status", "error");
-        // Reset dropdown on error
-        const currentStatus = dropdown.getAttribute('data-current-status');
-        dropdown.value = currentStatus;
+        showMessage("Error updating client status", "error");
+        
+        button.disabled = false;
+        button.innerHTML = 'Confirm Change';
     }
 }
 
@@ -1174,9 +1259,6 @@ function openUsageModal(companyId, companyName) {
                             </div>
                             <p class="mt-2">Loading usage data...</p>
                         </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     </div>
                 </div>
             </div>
@@ -1859,6 +1941,36 @@ function validateAllFields(formType = 'create') {
 /**
  * Open company creation modal
  */
+function generateRandomPassword(length = 10) {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%";
+    let pass = "";
+    for (let i = 0; i < length; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pass;
+}
+
+// Auto-fill Admin Email and generate password when Company Email entered
+document.getElementById("companyEmail").addEventListener("input", function () {
+    const email = this.value.trim();
+    const adminEmail = document.getElementById("companyAdminEmail");
+    const passField = document.getElementById("companyAdminPassword");
+    const confirmField = document.getElementById("companyAdminPasswordConfirm");
+
+    if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        adminEmail.value = email;
+        adminEmail.readOnly = true;
+
+        const generatedPassword = generateRandomPassword(10);
+        passField.value = generatedPassword;
+        confirmField.value = generatedPassword;
+    } else {
+        adminEmail.value = "";
+        passField.value = "";
+        confirmField.value = "";
+    }
+});
+
 function openCompanyModal() {
     document.getElementById('statsCards').style.display = 'none';
     updateActiveNavLink('add-company');
@@ -1971,7 +2083,7 @@ document.getElementById("companyForm").addEventListener("submit", async function
             const list = await listRes.json();
             const nameExists = (list || []).some(c => (c.name || '').trim().toLowerCase() === name.toLowerCase());
             if (nameExists) {
-                showMessage("Company name already exists.", "error");
+                showMessage("Client name already exists.", "error");
                 return;
             }
         }
@@ -2046,7 +2158,7 @@ document.getElementById("companyForm").addEventListener("submit", async function
                 await uploadCompanyLogo(company.id);
             }
             
-            showMessage("Company created successfully!", "success");
+            showMessage("Client created successfully!", "success");
             closeCompanyModal();
             loadDashboardData();
             loadCompaniesForSelect();
@@ -2290,7 +2402,7 @@ document.getElementById("editCompanyForm").addEventListener("submit", async func
                 }
             }
             
-            showMessage("Company updated successfully!", "success");
+            showMessage("Client updated successfully!", "success");
             closeEditCompanyModal();
             loadCompanies();
             loadCompaniesForSelect();
@@ -2312,7 +2424,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // ================================
 
 /**
- * Load users with optional status filter
+ * Load users with fresh companies data
  */
 async function loadUsers(status = 'all') {
     document.getElementById('statsCards').style.display = 'none';
@@ -2337,13 +2449,17 @@ async function loadUsers(status = 'all') {
 
         if (response.ok) {
             const users = await response.json();
-
-            // ✅ Populate company dropdown
+            
+            // ✅ RELOAD COMPANIES FRESHLY each time
+            await loadCompaniesForSelect();
+            
+            // ✅ Populate company dropdown with fresh data
             const companySelect = document.getElementById('companyFilter');
-            companySelect.innerHTML = `<option value="all">Select Company</option>`;
+            companySelect.innerHTML = `<option value="all">Select Client</option>`;
             companies.forEach(company => {
                 companySelect.innerHTML += `<option value="${company.id}">${company.name}</option>`;
             });
+            
             displayUsers(users);
             addUserFilterListeners(users);
         }
@@ -2353,7 +2469,7 @@ async function loadUsers(status = 'all') {
 }
 
 /**
- * Display users in a table
+ * Display users with proper company name resolution
  */
 function displayUsers(users) {
     const content = document.getElementById("dataContent");
@@ -2368,7 +2484,7 @@ function displayUsers(users) {
                 <thead class="table-light">
                     <tr>
                         <th>S.No</th>
-                        <th>Company</th>
+                        <th>Client</th>
                         <th>User Name</th>
                         <th>Email</th>
                         <th>Role</th>
@@ -2379,7 +2495,9 @@ function displayUsers(users) {
     `;
 
     users.forEach((user, index) => {
+        // ✅ Use the fresh companies array
         const company = companies.find(c => c.id === user.company_id);
+        const companyName = company ? company.name : 'Unknown';
         const badgeClass = user.role === 'company_admin' ? 'badge-admin' : 'badge-user';
         const isActive = (user.status || 'active') === 'active';
         const statusIcon = isActive 
@@ -2389,7 +2507,7 @@ function displayUsers(users) {
         html += `
             <tr>
                 <td>${index + 1}</td>
-                <td>${company ? company.name : 'Unknown'}</td>
+                <td>${companyName}</td>
                 <td>${user.name}</td>
                 <td>${user.email}</td>
                 <td><span class="badge ${badgeClass}">${user.role}</span></td>
@@ -2418,7 +2536,7 @@ function displayUsers(users) {
     html += "</tbody></table></div>";
     content.innerHTML = html;
 
-    // ✅ Initialize DataTable
+    // Initialize DataTable
     if ($.fn.DataTable.isDataTable('#usersTable')) {
         $('#usersTable').DataTable().destroy();
     }
@@ -2427,7 +2545,7 @@ function displayUsers(users) {
         responsive: true,
         pageLength: 10,
         lengthMenu: [10, 25, 50, 100],
-        order: [[1, 'asc']],
+        order: [[0, 'asc']],
         language: {
             search: "Search users:",
             lengthMenu: "Show _MENU_ users per page",
@@ -2437,14 +2555,13 @@ function displayUsers(users) {
         }
     });
 
-    // ✅ Status icon click listener
-    document.querySelectorAll('.status-toggle-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const userId = this.getAttribute('data-user-id');
-            const currentStatus = this.getAttribute('data-current-status');
-            const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-            confirmUserStatusChange(userId, newStatus, this);
-        });
+    // Event listeners for status toggle
+    $(document).off('click', '.status-toggle-btn');
+    $(document).on('click', '.status-toggle-btn', function() {
+        const userId = this.getAttribute('data-user-id');
+        const currentStatus = this.getAttribute('data-current-status');
+        const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+        confirmUserStatusChange(userId, newStatus, this);
     });
 }
 
@@ -3080,7 +3197,6 @@ function showStatusChangeModal(userId, newStatus, statusText, dropdown) {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                         <button type="button" class="btn ${newStatus === 'active' ? 'btn-success' : 'btn-danger'}" onclick="proceedUserStatusChange('${userId}', '${newStatus}', this)">
                             Confirm Change
                         </button>
@@ -3143,36 +3259,31 @@ async function proceedUserStatusChange(userId, status, button) {
             const modal = bootstrap.Modal.getInstance(document.getElementById('statusChangeModal'));
             modal.hide();
             
-            // Update the dropdown's current status attribute
-            const dropdown = document.querySelector(`.status-dropdown[data-user-id="${userId}"]`);
-            if (dropdown) {
-                dropdown.setAttribute('data-current-status', status);
+            // ✅ Get the original status button that was clicked
+            const originalStatusButton = document.querySelector(`button[data-user-id="${userId}"]`);
+            if (originalStatusButton && originalStatusButton.classList.contains('status-toggle-btn')) {
+                if (status === 'active') {
+                    originalStatusButton.innerHTML = '<i class="fas fa-toggle-on text-success" title="Active"></i>';
+                    originalStatusButton.title = 'Active';
+                    originalStatusButton.setAttribute('data-current-status', 'active');
+                } else {
+                    originalStatusButton.innerHTML = '<i class="fas fa-toggle-off text-danger" title="Inactive"></i>';
+                    originalStatusButton.title = 'Inactive';
+                    originalStatusButton.setAttribute('data-current-status', 'inactive');
+                }
             }
             
             loadDashboardData();
+            filterByStatus(status);
         } else {
             const errorText = await response.text();
             showMessage(errorText || "Failed to update user status", "error");
-            
-            // Reset dropdown on error
-            const dropdown = document.querySelector(`.status-dropdown[data-user-id="${userId}"]`);
-            if (dropdown) {
-                const currentStatus = dropdown.getAttribute('data-current-status');
-                dropdown.value = currentStatus;
-            }
             
             button.disabled = false;
             button.innerHTML = 'Confirm Change';
         }
     } catch (error) {
         showMessage("Error updating user status", "error");
-        
-        // Reset dropdown on error
-        const dropdown = document.querySelector(`.status-dropdown[data-user-id="${userId}"]`);
-        if (dropdown) {
-            const currentStatus = dropdown.getAttribute('data-current-status');
-            dropdown.value = currentStatus;
-        }
         
         button.disabled = false;
         button.innerHTML = 'Confirm Change';
@@ -3193,7 +3304,7 @@ async function confirmDeleteCompany(id) {
         headers: { "X-User-Role": "super_admin" }
     });
     if (res.ok) {
-        showMessage("Company deleted", "success");
+        showMessage("Client deleted", "success");
         loadCompanies();
         loadCompaniesForSelect();
     } else {
@@ -3243,7 +3354,7 @@ function showRestoreMenu() {
             <ul class="nav nav-tabs" id="restoreTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="companies-tab" data-bs-toggle="tab" data-bs-target="#companies-tab-pane" type="button" role="tab" aria-controls="companies-tab-pane" aria-selected="true" onclick="loadDeletedCompanies()">
-                        <i class="fas fa-building"></i> Companies
+                        <i class="fas fa-building"></i> Clients
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -3331,7 +3442,7 @@ function displayDeletedCompanies(companies) {
             <table class="table data-table">
                 <thead>
                     <tr>
-                        <th>Company Name</th>
+                        <th>Client Name</th>
                         <th>Description</th>
                         <th>Address</th>
                         <th>Deleted At</th>
@@ -3379,7 +3490,7 @@ function displayDeletedUsers(users) {
                         <th>Name</th>
                         <th>Email</th>
                         <th>Role</th>
-                        <th>Company</th>
+                        <th>Client</th>
                         <th>Deleted At</th>
                         <th>Actions</th>
                     </tr>
@@ -3426,7 +3537,7 @@ async function restoreCompany(companyId) {
         });
         
         if (response.ok) {
-            showMessage("Company restored successfully", "success");
+            showMessage("Client restored successfully", "success");
             loadDeletedCompanies();
             loadDashboardData();
         } else {
@@ -3537,7 +3648,7 @@ async function loadUsageReport(selectedMonth = null) {
                 <thead class="table-light">
                     <tr>
                         <th>S.No</th>
-                        <th>Company Name</th>
+                        <th>Client Name</th>
                         <th>Page Limit</th>
                         <th>Used Pages</th>
                         <th>Remaining Pages</th>
@@ -3588,10 +3699,16 @@ async function loadUsageReport(selectedMonth = null) {
             language: { lengthMenu: "_MENU_" },
             order: [],
             columnDefs: [
-                { orderable: true, targets: [0, 1, 2, 3, 4, 5, 6] },
-                { orderable: false, targets: '_all' },
-                { width: "120px", targets: "_all" }
+                { targets: 0, width: "5%", orderable: true },   // S.No
+                { targets: 1, width: "25%", orderable: true },  // Client Name
+                { targets: 2, width: "12%", orderable: true },  // Page Limit
+                { targets: 3, width: "12%", orderable: true },  // Used Pages
+                { targets: 4, width: "12%", orderable: true },  // Remaining Pages
+                { targets: 5, width: "10%", orderable: true },  // Usage %
+                { targets: 6, width: "12%", orderable: true }   // Total Amount Paid
             ],
+            autoWidth: false, // prevent DataTables from auto-calculating widths
+
             dom: `
                 <"d-flex justify-content-between align-items-center mb-3"
                     <"d-flex" lB>
@@ -3748,7 +3865,7 @@ function openAmountHistoryModal(companyId, history) {
     } else {
         let table = `
             <div class="table-responsive">
-                <table class="table table-striped table-hover">
+                <table class="table table-striped table-hover" id="amountHistoryTable">
                     <thead class="table-light">
                         <tr>
                             <th>Date</th>
@@ -3782,11 +3899,46 @@ function openAmountHistoryModal(companyId, history) {
         
         table += `</tbody></table></div>`;
         body.innerHTML = table;
+
+        // Initialize or reinitialize DataTable
+        if ($.fn.DataTable.isDataTable('#amountHistoryTable')) {
+            $('#amountHistoryTable').DataTable().destroy();
+        }
+
+        $('#amountHistoryTable').DataTable({
+            pageLength: 5,
+            lengthMenu: [[5, 10, 25, -1], [5, 10, 25, "All"]],
+            language: {
+                lengthMenu: "_MENU_",
+                search: "Search:"
+            },
+            order: [[0, 'desc']],
+            autoWidth: false,
+            columnDefs: [
+                { targets: 0, width: "30%" },
+                { targets: 1, width: "20%", className: "text-end" },
+                { targets: 2, width: "20%", className: "text-center" },
+                { targets: 3, width: "20%", className: "text-center" }
+            ],
+            dom: `
+                <"d-flex justify-content-between align-items-center mb-2"
+                    <"d-flex" l>
+                    f
+                >
+                rt
+                <"d-flex justify-content-between align-items-center mt-2"
+                    i
+                    p
+                >
+            `
+        });
     }
 
+    // Show modal
     const modal = new bootstrap.Modal(document.getElementById(modalId));
     modal.show();
 }
+
 
 
 // ================================
@@ -3961,7 +4113,7 @@ async function updateBankStatus(bankId, status, button) {
             button.setAttribute('data-current-status', status);
             
             // ✅ Reload banks with current filter
-            loadBanks(currentStatusFilter);
+            loadBanks(status);
             loadDashboardData();
         } else {
             const errorText = await response.text();
@@ -4300,8 +4452,8 @@ function showSettings() {
                 <div class="card settings-card card-success text-white" onclick="openCompanyModal()">
                     <div class="card-body">
                         <i class="fas fa-plus-circle card-icon"></i>
-                        <h5 class="card-title">Add Company</h5>
-                        <p class="card-text">Create a new company</p>
+                        <h5 class="card-title">Add Client</h5>
+                        <p class="card-text">Create a new Client</p>
                     </div>
                 </div>
             </div>

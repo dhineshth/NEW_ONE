@@ -4,7 +4,7 @@ from datetime import datetime
 import uuid
 from typing import Dict, List, Optional, Set
 from utils.common_utils import to_init_caps
-from parsing.parsing_utils import extract_email
+from parsing.parsing_utils import extract_email, extract_mobile_number
 from dotenv import load_dotenv
 from pathlib import Path
 from bson import Binary
@@ -742,8 +742,13 @@ async def store_results_in_mongodb(
         # ===== ANALYSIS SECTION =====
         analysis_id = str(uuid.uuid4())
         candidate_email = extract_email(resume_text)
+        candidate_mobile = extract_mobile_number(resume_text)  # NEW: Extract mobile
         candidate_name = analysis_data.get("candidate_info", {}).get("candidate_name", "Not specified")
         profile_feedback = analysis_data.get("profile_feedback", {})
+        
+        # Extract frequent_hopper from experience_analysis
+        experience_analysis = analysis_data.get("experience_analysis", {})
+        frequent_hopper = experience_analysis.get("frequent_hopper", False)
 
         analysis_record = {
             "analysis_id": analysis_id,
@@ -760,13 +765,16 @@ async def store_results_in_mongodb(
             "primary_skills": jd_doc.get("primary_skills", []),
             "secondary_skills": jd_doc.get("secondary_skills", []),
             "candidate_email": candidate_email,
+            "candidate_mobile": candidate_mobile,  # NEW FIELD
             "freelancer_status": profile_feedback.get("freelancer_status", False),
             "has_linkedin": profile_feedback.get("has_linkedin", False),
             "linkedin_url": profile_feedback.get("linkedin_url", ""),
             "has_email": profile_feedback.get("has_email", False),
+            "has_mobile": bool(candidate_mobile),  # NEW FIELD
             "match_score": analysis_data.get("skill_analysis", {}).get("match_score", 0),
-            "experience_match": analysis_data.get("experience_analysis", {}).get("experience_match", False),
-            "total_experience": analysis_data.get("experience_analysis", {}).get("total_experience", "N/A"),
+            "experience_match": experience_analysis.get("experience_match", False),
+            "frequent_hopper": frequent_hopper,
+            "total_experience": experience_analysis.get("total_experience", "N/A"),
             "matching_skills": analysis_data.get("skill_analysis", {}).get("matching_skills", []),
             "missing_primary_skills": analysis_data.get("skill_analysis", {}).get("missing_primary_skills", []),
             "missing_secondary_skills": analysis_data.get("skill_analysis", {}).get("missing_secondary_skills", []),

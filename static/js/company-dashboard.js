@@ -918,11 +918,13 @@ async function loadHistory_report() {
                     <td>${idx + 1}</td>
                     <td>${h.candidate_name || 'N/A'}</td>
                     <td>${h.candidate_email || 'N/A'}</td>
+                    <td>${h.candidate_mobile || 'N/A'}</td>
                     <td>${h.client_name || 'N/A'}</td>
                     <td>${h.jd_title || 'N/A'}</td>
                     <td>${h.required_experience || 'N/A'} Years</td>
                     <td>${h.total_experience || 'N/A'}</td>
                     <td style="text-align: center;">${h.experience_match ? '✅' : '❌'}</td>
+                    <td style="text-align: center;">${h.frequent_hopper ? '✅' : '❌'}</td>
                     <td>${h.match_score ?? 'N/A'}</td>
                     ${showUserName ? `<td>${userName}</td>` : ""}
                     <td>${h.filename || 'N/A'}</td>
@@ -942,11 +944,13 @@ async function loadHistory_report() {
                             <th>S.No</th>
                             <th>Candidate Name</th>
                             <th>Email</th>
+                            <th>Mobile</th>
                             <th>Client</th>
                             <th>Job Description</th>
                             <th>Required <br> Experience</th>
                             <th>Candidate <br> Experience</th>
                             <th>Experience <br> Match</th>
+                            <th>Frequent <br> Hopper</th>
                             <th>Score</th>
                             ${showUserName ? `<th>User Name</th>` : ""}
                             <th>File Name</th>
@@ -969,7 +973,7 @@ async function loadHistory_report() {
             language: { lengthMenu: "_MENU_" },
             order: [],
             columnDefs: [
-                { orderable: true, targets: [0, 1, 8, 10, 11] },
+                { orderable: true, targets: [0, 1, 9, 11, 12] }, // Adjust indices for new column
                 { orderable: false, targets: '_all' },
                 { width: "120px", targets: "_all" }
             ],
@@ -989,104 +993,90 @@ async function loadHistory_report() {
                     extend: 'excelHtml5',
                     text: '<i class="fa fa-file-excel text-success"></i>',
                     filename: exportFileName,
-                    title: 'Analysis_Report_' + (() => {
-                                const today = new Date();
-                                const day = String(today.getDate()).padStart(2, '0');
-                                const month = String(today.getMonth() + 1).padStart(2, '0');
-                                const year = today.getFullYear();
-                                return `${day}-${month}-${year}`;
-                            })(),
+                    title: exportFileName,
                     sheetName: 'Analysis Report',
                     exportOptions: {
-                        //columns: ':not(:last-child)', // Exclude action column
+                        columns: ':visible', // include all visible columns
                         format: {
                             body: function (data, row, column, node) {
-                                return data === '✅' ? 'Yes' : (data === '❌' ? 'No' : data);
+                                if (typeof data === 'string') {
+                                    if (data.includes('✅')) return 'Yes';
+                                    if (data.includes('❌')) return 'No';
+                                }
+                                if (data === true || data === 1) return 'Yes';
+                                if (data === false || data === 0 || data === null || data === undefined) return 'No';
+                                return data;
                             }
                         }
                     }
                 },
                 {
-                            extend: 'pdfHtml5',
-                            text: '<i class="fa fa-file-pdf text-danger"></i>',
-                            title: 'Analysis_Report_' + (() => {
-                                const today = new Date();
-                                const day = String(today.getDate()).padStart(2, '0');
-                                const month = String(today.getMonth() + 1).padStart(2, '0');
-                                const year = today.getFullYear();
-                                return `${day}-${month}-${year}`;
-                            })(),
-                            orientation: 'landscape',
-                            pageSize: 'A3',
-                            exportOptions: { columns: [0,1,2,3,4,5,6,7,8,9,10,11] },
-                            customize: function (doc) {
-                                doc.styles.tableHeader = {
-                                    fillColor: '#f2f2f2',
-                                    color: 'black',
-                                    alignment: 'left',
-                                    bold: true
-                                };
-                                doc.defaultStyle.fontSize = 8;
-                                doc.content[1].table.widths = [
-                                    '3%', '12%', '12%', '10%', '12%', '6%', '6%', '5%', '4%', '10%', '12%', '7%'
-                                ];
+                    extend: 'pdfHtml5',
+                    text: '<i class="fa fa-file-pdf text-danger"></i>',
+                    title: exportFileName,
+                    orientation: 'landscape',
+                    pageSize: 'A3',
+                    exportOptions: { columns: ':visible' },
+                    customize: function (doc) {
+                        doc.styles.tableHeader = {
+                            fillColor: '#f2f2f2',
+                            color: 'black',
+                            alignment: 'left',
+                            bold: true
+                        };
+                        doc.defaultStyle.fontSize = 8;
 
-                                // Add custom layout
-                                doc.content[1].layout = {
-                                    hLineWidth: function (i, node) {
-                                        if (i === 1) return 2;  // Thick bottom border for header row
-                                        return 0.5;            // Thin horizontal borders elsewhere
-                                    },
-                                    vLineWidth: function (i, node) {
-                                        return 0.5;           // Thin vertical borders
-                                    },
-                                    hLineColor: function (i, node) {
-                                        return 'black';       // Dark black border color
-                                    },
-                                    vLineColor: function (i, node) {
-                                        return 'black';       // Dark black border color
-                                    },
-                                    paddingLeft: function(i, node) { return 4; },
-                                    paddingRight: function(i, node) { return 4; },
-                                    paddingTop: function(i, node) { return 2; },
-                                    paddingBottom: function(i, node) { return 2; }
-                                };
-
-                                var rowCount = doc.content[1].table.body.length;
-                                for (var i = 1; i < rowCount; i++) {
-                                    let expMatch = doc.content[1].table.body[i][7].text;
-                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][7].text = "Yes";
-                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][7].text = "No";
-
-                                    doc.content[1].table.body[i][6].alignment = 'center';
-                                    doc.content[1].table.body[i][7].alignment = 'center';
-                                    doc.content[1].table.body[i][8].alignment = 'center';
-                                    doc.content[1].table.body[i][10].alignment = 'center';
-                                    doc.content[1].table.body[i][11].alignment = 'center';
+                        // ✅ Convert all checkmarks/cross to Yes/No in PDF
+                        doc.content[1].table.body.forEach((row, i) => {
+                            if (i === 0) return; // skip header row
+                            row.forEach((cell, j) => {
+                                if (cell.text) {
+                                    let t = cell.text.toString();
+                                    if (t.includes('✅')) cell.text = 'Yes';
+                                    else if (t.includes('❌')) cell.text = 'No';
+                                    else if (t === 'true') cell.text = 'Yes';
+                                    else if (t === 'false') cell.text = 'No';
+                                    else if (t === '0') cell.text = 'No';
+                                    else if (t === '1') cell.text = 'Yes';
                                 }
+                            });
+                        });
 
-                                doc.pageMargins = [20, 20, 20, 30];
+                        // table layout and footer
+                        doc.content[1].layout = {
+                            hLineWidth: i => (i === 1 ? 2 : 0.5),
+                            vLineWidth: () => 0.5,
+                            hLineColor: () => 'black',
+                            vLineColor: () => 'black',
+                            paddingLeft: () => 4,
+                            paddingRight: () => 4,
+                            paddingTop: () => 2,
+                            paddingBottom: () => 2
+                        };
 
-                                doc['footer'] = function(currentPage, pageCount) {
-                                    return { text: currentPage.toString() + ' / ' + pageCount, alignment: 'right', margin: [0, 0, 20, 0] };
-                                };
-                            }
-                        },
+                        doc.pageMargins = [20, 20, 20, 30];
+                        doc['footer'] = (currentPage, pageCount) => ({
+                            text: currentPage.toString() + ' / ' + pageCount,
+                            alignment: 'right',
+                            margin: [0, 0, 20, 0]
+                        });
+                    }
+                },
                 {
                     extend: 'print',
                     text: '<i class="fa fa-print text-primary"></i>',
-                    title: 'Analysis_Report_' + (() => {
-                                const today = new Date();
-                                const day = String(today.getDate()).padStart(2, '0');
-                                const month = String(today.getMonth() + 1).padStart(2, '0');
-                                const year = today.getFullYear();
-                                return `${day}-${month}-${year}`;
-                            })(),
+                    title: exportFileName,
                     exportOptions: {
-                        // columns: ':not(:last-child)',
+                        columns: ':visible',
                         format: {
                             body: function (data, row, column, node) {
-                                return data === '✅' ? 'Yes' : (data === '❌' ? 'No' : data);
+                                if (typeof data === 'string') {
+                                    if (data.includes('✅')) return 'Yes';
+                                    if (data.includes('❌')) return 'No';
+                                }
+                                if (data === true || data === 1) return 'Yes';
+                                if (data === false || data === 0 || data === null || data === undefined) return 'No';
+                                return data;
                             }
                         }
                     }
@@ -1440,26 +1430,32 @@ function populateClientAndJDFilters() {
         }
 
         async function loadCompanyUsers() {
-            document.getElementById('dashboardStats').style.display = 'none';
-            setActiveLink('users');
-            document.getElementById('dataSectionTitle').textContent = 'My Users';
-            document.getElementById('dataFilterDropdownContainer').style.display = 'block';
+    document.getElementById('dashboardStats').style.display = 'none';
+    setActiveLink('users');
+    document.getElementById('dataSectionTitle').textContent = 'My Users';
+    document.getElementById('dataFilterDropdownContainer').style.display = 'block';
+    
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
+        
+        if (response.ok) {
+            const users = await response.json();
             
-            try {
-                const response = await apiFetch(`${API_BASE_URL}/users?company_id=${userData.company_id}`);
-                
-                if (response.ok) {
-                    const users = await response.json();
-                    if (analysisHistory.length === 0) {
-                        await loadAnalysisHistory();
-                    }
-                    displayCompanyUsers(users);
-                    updateUserStats(users);
-                }
-            } catch (error) {
-                showMessage("Error loading users", "error");
+            // Destroy existing DataTable if it exists
+            if ($.fn.DataTable.isDataTable('#usersTable')) {
+                $('#usersTable').DataTable().destroy();
             }
+            
+            if (analysisHistory.length === 0) {
+                await loadAnalysisHistory();
+            }
+            displayCompanyUsers(users);
+            updateUserStats(users);
         }
+    } catch (error) {
+        showMessage("Error loading users", "error");
+    }
+}
 
         function updateUserStats(users) {
     const activeUsers = users.filter(user => user.status === "active" && user.role === "user").length;
@@ -1486,14 +1482,15 @@ function populateClientAndJDFilters() {
 
     let html = `
         <div class="table-responsive">
-            <table class="table data-table">
+            <table class="table data-table" id="usersTable">
                 <thead>
                     <tr>
-                        <th>S.No</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Total Parsed Pages</th>
-                        <th>User Created On</th>
+                        <th style="text-align:center;">S.No</th>
+                        <th style="text-align:center;">Name</th>
+                        <th style="text-align:center;">Email</th>
+                        <th style="text-align:center;">Total Analyzed <br> Resumes</th>
+                        <th style="text-align:center;">Total Parsed <br> Pages</th>
+                        <th style="text-align:center;">User <br> Created On</th>
                         <th style="width: 180px; text-align:center;">Status</th>
                     </tr>
                 </thead>
@@ -1501,9 +1498,10 @@ function populateClientAndJDFilters() {
     `;
 
     regularUsers.forEach((user, index) => {
-        const userPages = analysisHistory
-            .filter(analysis => analysis.created_by === user.id)
-            .reduce((total, analysis) => total + (analysis.page_count || 0), 0);
+        const userAnalyses = analysisHistory.filter(analysis => analysis.created_by === user.id);
+        
+        const userPages = userAnalyses.reduce((total, analysis) => total + (analysis.page_count || 0), 0);
+        const userResumesCount = userAnalyses.length;
 
         const statusDropdown = `
             <select class="form-select form-select-sm status-dropdown ${user.status === "active" ? "bg-success-subtle text-dark" : "bg-danger-subtle text-dark"}"
@@ -1518,7 +1516,8 @@ function populateClientAndJDFilters() {
                 <td>${index + 1}</td>
                 <td>${user.name}</td>
                 <td>${user.email}</td>
-                <td>${userPages}</td>
+                <td>${userResumesCount}</td>
+                <td>${userPages}</td>  
                 <td>${formatDate(user.created_at)}</td>
                 <td class="text-center">${statusDropdown}</td>
             </tr>
@@ -1527,62 +1526,187 @@ function populateClientAndJDFilters() {
 
     html += "</tbody></table></div>";
     content.innerHTML = html;
+
+    // Initialize DataTable for pagination
+    $('#usersTable').DataTable({
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        language: { 
+            lengthMenu: "Show _MENU_ users per page",
+            search: "Search users:",
+            info: "Showing _START_ to _END_ of _TOTAL_ users",
+            infoEmpty: "No users available",
+            infoFiltered: "(filtered from _MAX_ total users)"
+        },
+        order: [],
+        columnDefs: [
+            { orderable: true, targets: [0, 1, 2, 3, 4, 5] },
+            { orderable: false, targets: [6] }, // Status column not sortable
+            { width: "auto", targets: "_all" }
+        ],
+        dom: `
+            <"d-flex justify-content-between align-items-center mb-3"
+                <"d-flex" l>
+                f
+            >
+            rt
+            <"d-flex justify-content-between align-items-center mt-3"
+                i
+                p
+            >
+        `,
+        responsive: true
+    });
 }
 
 function handleStatusChange(userId, selectEl) {
     const newStatus = selectEl.value;
+    const originalStatus = newStatus === 'active' ? 'inactive' : 'active';
+    
+    // Immediately reset to original value
+    selectEl.value = originalStatus;
+    selectEl.className = `form-select form-select-sm status-dropdown ${originalStatus === 'active' ? 'bg-success-subtle text-dark' : 'bg-danger-subtle text-dark'}`;
 
     if (newStatus === "inactive") {
-        updateUserStatus(userId, "inactive");
-        selectEl.className = "form-select form-select-sm status-dropdown bg-danger-subtle text-dark";
+        if (!confirm(`Do you want to deactivate this user?`)) {
+            return;
+        }
+        
+        showReasonModal(userId, selectEl);
     } else if (newStatus === "active") {
         alert("Contact admin to activate this user");
-        // reset back to inactive
-        selectEl.value = "inactive";
-        selectEl.className = "form-select form-select-sm status-dropdown bg-danger-subtle text-dark";
     }
 }
 
-        // Function to handle user status updates
-        async function updateUserStatus(userId, status) {
-            if (!confirm(`Do you want to ${status === 'active' ? 'activate' : 'deactivate'} this user?`)) {
-                return;
-            }
+function showReasonModal(userId, selectEl) {
+    const modalId = 'reasonModal';
+    
+    // Create modal HTML if it doesn't exist
+    if (!document.getElementById(modalId)) {
+        const modalHTML = `
+            <div class="modal fade" id="${modalId}" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Deactivation Reason</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    Please enter a reason <span class="text-danger">*</span>
+                                </label>
+                                <textarea 
+                                    class="form-control" 
+                                    id="deactivationReason" 
+                                    rows="3" 
+                                    maxlength="50"
+                                    placeholder="Enter reason for deactivation..."></textarea>
+                                <div class="form-text text-danger" id="reasonError" style="display: none;"></div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-danger" onclick="submitDeactivation('${userId}')">Deactivate User</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    // Reset form
+    const reasonInput = document.getElementById('deactivationReason');
+    const reasonError = document.getElementById('reasonError');
+    reasonInput.value = '';
+    reasonError.style.display = 'none';
+    reasonError.textContent = '';
 
-            // Ask for reason only when deactivating
-            let reason = "";
-            if (status === "inactive") {
-                reason = prompt("Please enter a reason:");
-                if (!reason || reason.trim() === "") {
-                    alert("Reason is required.");
-                    return;
-                }
+    // Add validation listener (attach only once)
+    if (!reasonInput.dataset.listenerAdded) {
+        reasonInput.addEventListener('input', () => {
+            const validPattern = /^[a-zA-Z0-9 ]*$/;
+            if (!validPattern.test(reasonInput.value)) {
+                reasonInput.value = reasonInput.value.replace(/[^a-zA-Z0-9 ]/g, '');
+                reasonError.style.display = 'block';
+                reasonError.textContent = 'Please enter only letters and numbers.';
+            } else if (reasonInput.value.length > 50) {
+                reasonInput.value = reasonInput.value.slice(0, 50);
+                reasonError.style.display = 'block';
+                reasonError.textContent = 'Maximum 50 characters allowed.';
+            } else {
+                reasonError.style.display = 'none';
+                reasonError.textContent = '';
             }
+        });
+        reasonInput.dataset.listenerAdded = "true";
+    }
 
-            try {
-                const response = await apiFetch(`${API_BASE_URL}/users/${userId}/status`, {
-                    method: 'PATCH',
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        status: status,
-                        reason: reason
-                    })
-                });
+    // Store select element for later use
+    window.currentSelectEl = selectEl;
 
-                if (response.ok) {
-                    showMessage(`User ${status === 'active' ? 'activated' : 'deactivated'} successfully!`, 'success');
-                    loadCompanyUsers(); // reload list
-                } else {
-                    const error = await response.json();
-                    showMessage(`Failed to update user status: ${error.detail || 'Unknown error'}`, 'error');
-                }
-            } catch (error) {
-                console.error('Error updating user status:', error);
-                showMessage('Error updating user status. Please try again.', 'error');
-            }
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById(modalId));
+    modal.show();
+}
+
+function submitDeactivation(userId) {
+    const reasonInput = document.getElementById('deactivationReason');
+    const reasonError = document.getElementById('reasonError');
+    const reason = reasonInput.value.trim();
+
+    if (!reason) {
+        reasonError.style.display = 'block';
+        reasonError.textContent = 'Reason is required.';
+        reasonInput.focus();
+        return;
+    }
+
+    reasonError.style.display = 'none';
+
+    // Update dropdown visually
+    if (window.currentSelectEl) {
+        window.currentSelectEl.value = "inactive";
+        window.currentSelectEl.className = "form-select form-select-sm status-dropdown bg-danger-subtle text-dark";
+    }
+
+    // Close modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('reasonModal'));
+    modal.hide();
+
+    // Call API
+    updateUserStatus(userId, "inactive", reason);
+}
+
+// Keep the original updateUserStatus function as you had it
+async function updateUserStatus(userId, status, reason) {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/users/${userId}/status`, {
+            method: 'PATCH',
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                status: status,
+                reason: reason
+            })
+        });
+
+        if (response.ok) {
+            showMessage(`User ${status === 'active' ? 'activated' : 'deactivated'} successfully!`, 'success');
+            loadCompanyUsers(); // reload list
+            updateDashboardStats();
+        } else {
+            const error = await response.json();
+            showMessage(`Failed to update user status: ${error.detail || 'Unknown error'}`, 'error');
+            loadCompanyUsers(); // reload to reset UI
         }
+    } catch (error) {
+        console.error('Error updating user status:', error);
+        showMessage('Error updating user status. Please try again.', 'error');
+        loadCompanyUsers(); // reload to reset UI
+    }
+}
 // Show clients table
 function showClientsMenu() {
     document.getElementById('dashboardStats').style.display = 'none';
@@ -1594,11 +1718,10 @@ function showClientsMenu() {
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div>
-                    
                 </div>
                 <div>
                     <select id="statusFilter" class="form-select form-select-sm" style="width: 120px;" onchange="loadClientsTable()">
-                        <option value="">All </option>
+                        
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                     </select>
@@ -1633,6 +1756,12 @@ async function loadClientsTable() {
         const response = await apiFetch(url);
         if (response.ok) {
             const clients = await response.json();
+            
+            // Destroy existing DataTable if it exists
+            if ($.fn.DataTable.isDataTable('#clientsTable')) {
+                $('#clientsTable').DataTable().destroy();
+            }
+            
             renderClientsTable(clients);
         } else {
             throw new Error('Failed to load clients data');
@@ -1648,6 +1777,7 @@ async function loadClientsTable() {
 }
 
 // Render clients table with proper Bootstrap styling
+// Render clients table with proper Bootstrap styling and pagination
 function renderClientsTable(clients) {
     const container = document.getElementById('clientsTableContainer');
     
@@ -1662,7 +1792,7 @@ function renderClientsTable(clients) {
     
     let html = `
         <div class="table-responsive">
-            <table class="table table-striped table-bordered table-hover">
+            <table class="table table-striped table-bordered table-hover" id="clientsTable">
                 <thead class="table-light">
                     <tr>
                         <th>S.No</th>
@@ -1708,6 +1838,37 @@ function renderClientsTable(clients) {
     
     html += "</tbody></table></div>";
     container.innerHTML = html;
+    
+    // Initialize DataTable for pagination
+    $('#clientsTable').DataTable({
+        pageLength: 10,
+        lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
+        language: { 
+            lengthMenu: "Show _MENU_ clients per page",
+            search: "Search clients:",
+            info: "Showing _START_ to _END_ of _TOTAL_ clients",
+            infoEmpty: "No clients available",
+            infoFiltered: "(filtered from _MAX_ total clients)"
+        },
+        order: [],
+        columnDefs: [
+            { orderable: true, targets: [0, 1, 2, 3] },
+            { orderable: false, targets: [4, 5] }, // Edit and Status columns not sortable
+            { width: "auto", targets: "_all" }
+        ],
+        dom: `
+            <"d-flex justify-content-between align-items-center mb-3"
+                <"d-flex" l>
+                f
+            >
+            rt
+            <"d-flex justify-content-between align-items-center mt-3"
+                i
+                p
+            >
+        `,
+        responsive: true
+    });
     updateDashboardStats();
 }
 // Toggle client status (activate/deactivate)
@@ -1861,9 +2022,6 @@ function showJDModal(clientName, jds) {
                         <div class="modal-body" id="${modalId}Body">
                             ${content}
                         </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -1901,7 +2059,7 @@ function editClient(clientId, clientName) {
                             ${content}
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            
                             <button type="button" class="btn btn-primary" onclick="saveClientChanges('${clientId}')">Save Changes</button>
                         </div>
                     </div>
@@ -2053,7 +2211,7 @@ async function editJobDescription(jdId) {
                             </div>
                             <div class="modal-body" id="${modalId}Body">${content}</div>
                             <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            
                                 <button type="button" class="btn btn-primary" onclick="saveJDChanges1('${jdId}')">Save Changes</button>
                             </div>
                         </div>
@@ -3272,6 +3430,7 @@ document.head.appendChild(style);
             const positions = (data.experience_analysis && data.experience_analysis.positions) || [];
             const totalExp = (data.experience_analysis && data.experience_analysis.total_experience) || 'N/A';
             const expMatch = (data.experience_analysis && data.experience_analysis.experience_match) || false;
+            const frequentHopper = (data.experience_analysis && data.experience_analysis.frequent_hopper) || false;
             const jdExp = (data.experience_analysis && data.experience_analysis.required_experience) || "N/A";
             const summary = data.summary || '';
 
@@ -3281,7 +3440,7 @@ document.head.appendChild(style);
                     <td><b>${p.company || 'Unknown'}</b><br/>${p.title || 'Unknown'}</td>
                     <td>
                         ${p.duration_missing 
-                            ? '<span style="color:red;">📅 Dates Missing</span>' 
+                            ? '<span style="color:red;">📅 Start and End Date Missing</span>' 
                             : (() => {
                                 if (p.duration && p.duration.includes("-")) {
                                     const [start, end] = p.duration.split("-");
@@ -3306,7 +3465,6 @@ document.head.appendChild(style);
                     <td></td>
                 </tr>
             `;
-
 
             analysisContainer.innerHTML = `
                 <div class="analysis-card">
@@ -3333,12 +3491,16 @@ document.head.appendChild(style);
                             <div class="metric-value">${jdExp} Years</div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-title">Candidate’s Experience</div>
+                            <div class="metric-title">Candidate's Experience</div>
                             <div class="metric-value">${totalExp}</div>
                         </div>
                         <div class="metric-card ${expMatch ? 'match' : 'no-match'}">
                             <div class="metric-title">Experience Match</div>
                             <div class="metric-value">${expMatch ? '✅ Match' : '❌ No Match'}</div>
+                        </div>
+                        <div class="metric-card ${frequentHopper ? 'frequent-hopper' : 'stable'}">
+                            <div class="metric-title">Frequent Hopper(hopping within 1 month - 11 months)</div>
+                            <div class="metric-value">${frequentHopper ? '⚠️ Yes' : '✅ No'}</div>
                         </div>
                     </div>
 
@@ -3371,7 +3533,6 @@ document.head.appendChild(style);
             
             analysisContainer.classList.remove('hidden');
         }
-
 
         // Load analysis history
         async function loadAnalysisHistory() {
@@ -3450,11 +3611,13 @@ document.head.appendChild(style);
                         <td>${idx + 1}</td>
                         <td>${h.candidate_name || 'N/A'}</td>
                         <td>${h.candidate_email || 'N/A'}</td>
+                        <td>${h.candidate_mobile || 'N/A'}</td>
                         <td>${h.client_name || 'N/A'}</td>
                         <td>${h.jd_title || 'N/A'}</td>
                         <td>${h.required_experience || 'N/A'} Years</td>
                         <td>${h.total_experience || 'N/A'}</td>
                         <td style="text-align: center;">${h.experience_match ? '✅' : '❌'}</td>
+                        <td style="text-align: center;">${h.frequent_hopper ? '✅' : '❌'}</td>
                         <td>${h.match_score ?? 'N/A'}</td>
                         <td>${h.filename || 'N/A'}</td>
                         <td>${h.page_count || 'N/A'}</td>
@@ -3476,11 +3639,13 @@ document.head.appendChild(style);
                                     <th>S.No</th>
                                     <th>Candidate Name</th>
                                     <th>Email</th>
+                                    <th>Mobile</th>
                                     <th>Client</th>
                                     <th>Job Description</th>
                                     <th>Required <br> Experience</th>
                                     <th>Candidate <br> Experience</th>
                                     <th>Experience <br> Match</th>
+                                    <th>Frequent <br> Hopper</th>
                                     <th>Score</th>
                                     <th>File Name</th>
                                     <th>Parsed <br> Pages</th>
@@ -3500,7 +3665,7 @@ document.head.appendChild(style);
                     language: { lengthMenu: "_MENU_" },
                     order: [],
                     columnDefs: [
-                        { orderable: true, targets: [0, 1, 8, 10, 11] },
+                        { orderable: true, targets: [0, 1, 9, 11, 12] }, // Adjust indices for new column
                         { orderable: false, targets: '_all' },
                         { width: "120px", targets: "_all" }
                     ],
@@ -3527,7 +3692,20 @@ document.head.appendChild(style);
                                 return `${day}-${month}-${year}`;
                             })(),
                             sheetName: 'analysis_history',
-                            exportOptions: { columns: ':not(:last-child)' }
+                            exportOptions: {
+                                columns: ':not(:last-child)',
+                                format: {
+                                    body: function (data, row, column, node) {
+                                        if (typeof data === 'string') {
+                                            if (data.includes('✅')) return 'Yes';
+                                            if (data.includes('❌')) return 'No';
+                                        }
+                                        if (data === true || data === 1) return 'Yes';
+                                        if (data === false || data === 0 || data == null) return 'No';
+                                        return data;
+                                    }
+                                }
+                            }
                         },
                         {
                             extend: 'pdfHtml5',
@@ -3541,7 +3719,7 @@ document.head.appendChild(style);
                             })(),
                             orientation: 'landscape',
                             pageSize: 'A3',
-                            exportOptions: { columns: [0,1,2,3,4,5,6,7,8,9,10,11] },
+                            exportOptions: { columns: ':not(:last-child)' },
                             customize: function (doc) {
                                 doc.styles.tableHeader = {
                                     fillColor: '#f2f2f2',
@@ -3550,49 +3728,37 @@ document.head.appendChild(style);
                                     bold: true
                                 };
                                 doc.defaultStyle.fontSize = 8;
-                                doc.content[1].table.widths = [
-                                    '3%', '15%', '15%', '10%', '15%', '6%', '6%', '5%', '4%', '10%', '3%', '7%'
-                                ];
 
-                                // Add custom layout
+                                // ✅ Convert all checkmarks/cross/boolean to Yes/No
+                                doc.content[1].table.body.forEach((row, i) => {
+                                    if (i === 0) return; // Skip header row
+                                    row.forEach(cell => {
+                                        if (cell.text) {
+                                            let t = cell.text.toString().trim();
+                                            if (t.includes('✅') || t === 'true' || t === '1') cell.text = 'Yes';
+                                            else if (t.includes('❌') || t === 'false' || t === '0' || t === '' || t === 'null' || t === 'undefined') cell.text = 'No';
+                                        }
+                                    });
+                                });
+
+                                // Table layout customization
                                 doc.content[1].layout = {
-                                    hLineWidth: function (i, node) {
-                                        if (i === 1) return 2;  // Thick bottom border for header row
-                                        return 0.5;            // Thin horizontal borders elsewhere
-                                    },
-                                    vLineWidth: function (i, node) {
-                                        return 0.5;           // Thin vertical borders
-                                    },
-                                    hLineColor: function (i, node) {
-                                        return 'black';       // Dark black border color
-                                    },
-                                    vLineColor: function (i, node) {
-                                        return 'black';       // Dark black border color
-                                    },
-                                    paddingLeft: function(i, node) { return 4; },
-                                    paddingRight: function(i, node) { return 4; },
-                                    paddingTop: function(i, node) { return 2; },
-                                    paddingBottom: function(i, node) { return 2; }
+                                    hLineWidth: i => (i === 1 ? 2 : 0.5),
+                                    vLineWidth: () => 0.5,
+                                    hLineColor: () => 'black',
+                                    vLineColor: () => 'black',
+                                    paddingLeft: () => 4,
+                                    paddingRight: () => 4,
+                                    paddingTop: () => 2,
+                                    paddingBottom: () => 2
                                 };
-
-                                var rowCount = doc.content[1].table.body.length;
-                                for (var i = 1; i < rowCount; i++) {
-                                    let expMatch = doc.content[1].table.body[i][7].text;
-                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][7].text = "Yes";
-                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][7].text = "No";
-
-                                    doc.content[1].table.body[i][6].alignment = 'center';
-                                    doc.content[1].table.body[i][7].alignment = 'center';
-                                    doc.content[1].table.body[i][8].alignment = 'center';
-                                    doc.content[1].table.body[i][10].alignment = 'center';
-                                    doc.content[1].table.body[i][11].alignment = 'center';
-                                }
 
                                 doc.pageMargins = [20, 20, 20, 30];
-
-                                doc['footer'] = function(currentPage, pageCount) {
-                                    return { text: currentPage.toString() + ' / ' + pageCount, alignment: 'right', margin: [0, 0, 20, 0] };
-                                };
+                                doc['footer'] = (currentPage, pageCount) => ({
+                                    text: currentPage.toString() + ' / ' + pageCount,
+                                    alignment: 'right',
+                                    margin: [0, 0, 20, 0]
+                                });
                             }
                         },
                         {
@@ -3605,7 +3771,20 @@ document.head.appendChild(style);
                                 const year = today.getFullYear();
                                 return `${day}-${month}-${year}`;
                             })(),
-                            exportOptions: { columns: ':not(:last-child)' }
+                            exportOptions: {
+                                columns: ':not(:last-child)',
+                                format: {
+                                    body: function (data, row, column, node) {
+                                        if (typeof data === 'string') {
+                                            if (data.includes('✅')) return 'Yes';
+                                            if (data.includes('❌')) return 'No';
+                                        }
+                                        if (data === true || data === 1) return 'Yes';
+                                        if (data === false || data === 0 || data == null) return 'No';
+                                        return data;
+                                    }
+                                }
+                            }
                         }
                     ]
                 });

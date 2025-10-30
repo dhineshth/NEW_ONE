@@ -671,11 +671,13 @@ async function loadHistory_report() {
                     <td>${idx + 1}</td>
                     <td>${h.candidate_name || 'N/A'}</td>
                     <td>${h.candidate_email || 'N/A'}</td>
+                     <td>${h.candidate_mobile || 'N/A'}</td>
                     <td>${h.client_name || 'N/A'}</td>
                     <td>${h.jd_title || 'N/A'}</td>
                     <td>${h.required_experience || 'N/A'} Years</td>
                     <td>${h.total_experience || 'N/A'}</td>
                     <td style="text-align: center;">${h.experience_match ? '✅' : '❌'}</td>
+                    <td style="text-align: center;">${h.frequent_hopper ? '✅' : '❌'}</td>
                     <td>${h.match_score ?? 'N/A'}</td>
                     ${showUserName ? `<td>${userName}</td>` : ""}
                     <td>${h.filename || 'N/A'}</td>
@@ -695,11 +697,13 @@ async function loadHistory_report() {
                             <th>S.No</th>
                             <th>Candidate Name</th>
                             <th>Email</th>
+                            <th>Mobile</th>
                             <th>Client</th>
                             <th>Job Description</th>
                             <th>Required <br> Experience</th>
                             <th>Candidate <br> Experience</th>
                             <th>Experience <br> Match</th>
+                            <th>Frequent <br> Hopper</th>
                             <th>Score</th>
                             ${showUserName ? `<th>User Name</th>` : ""}
                             <th>File Name</th>
@@ -743,15 +747,14 @@ async function loadHistory_report() {
                     text: '<i class="fa fa-file-excel text-success"></i>',
                     filename: exportFileName,
                     title: 'Analysis_Report_' + (() => {
-                                const today = new Date();
-                                const day = String(today.getDate()).padStart(2, '0');
-                                const month = String(today.getMonth() + 1).padStart(2, '0');
-                                const year = today.getFullYear();
-                                return `${day}-${month}-${year}`;
-                            })(),
+                        const today = new Date();
+                        const day = String(today.getDate()).padStart(2, '0');
+                        const month = String(today.getMonth() + 1).padStart(2, '0');
+                        const year = today.getFullYear();
+                        return `${day}-${month}-${year}`;
+                    })(),
                     sheetName: 'Analysis Report',
                     exportOptions: {
-                        //columns: ':not(:last-child)', // Exclude action column
                         format: {
                             body: function (data, row, column, node) {
                                 return data === '✅' ? 'Yes' : (data === '❌' ? 'No' : data);
@@ -762,7 +765,7 @@ async function loadHistory_report() {
                 {
                             extend: 'pdfHtml5',
                             text: '<i class="fa fa-file-pdf text-danger"></i>',
-                            title: 'Analysis_Report_' + (() => {
+                            title: 'Analysis_History_' + (() => {
                                 const today = new Date();
                                 const day = String(today.getDate()).padStart(2, '0');
                                 const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -771,7 +774,9 @@ async function loadHistory_report() {
                             })(),
                             orientation: 'landscape',
                             pageSize: 'A3',
-                            exportOptions: { columns: [0,1,2,3,4,5,6,7,8,9,10,11] },
+                            exportOptions: { 
+                                columns: [0,1,2,3,4,5,6,7,8,9,10,11,12,13] // All columns except action
+                            },
                             customize: function (doc) {
                                 doc.styles.tableHeader = {
                                     fillColor: '#f2f2f2',
@@ -779,9 +784,22 @@ async function loadHistory_report() {
                                     alignment: 'left',
                                     bold: true
                                 };
-                                doc.defaultStyle.fontSize = 8;
+                                doc.defaultStyle.fontSize = 7; // Slightly smaller font to fit more columns
                                 doc.content[1].table.widths = [
-                                    '3%', '12%', '12%', '10%', '12%', '6%', '6%', '5%', '4%', '10%', '12%', '7%'
+                                    '3%',  // S.No
+                                    '12%', // Candidate Name
+                                    '12%', // Email
+                                    '10%', // Mobile
+                                    '10%', // Client
+                                    '12%', // Job Description
+                                    '6%',  // Required Experience
+                                    '6%',  // Candidate Experience
+                                    '5%',  // Experience Match
+                                    '5%',  // Frequent Hopper
+                                    '4%',  // Score
+                                    '8%',  // File Name
+                                    '3%',  // Parsed Pages
+                                    '7%'   // Parsed Date
                                 ];
 
                                 // Add custom layout
@@ -807,21 +825,32 @@ async function loadHistory_report() {
 
                                 var rowCount = doc.content[1].table.body.length;
                                 for (var i = 1; i < rowCount; i++) {
-                                    let expMatch = doc.content[1].table.body[i][7].text;
-                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][7].text = "Yes";
-                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][7].text = "No";
+                                    // Convert icons to text
+                                    let expMatch = doc.content[1].table.body[i][8].text;
+                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][8].text = "Yes";
+                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][8].text = "No";
 
-                                    doc.content[1].table.body[i][6].alignment = 'center';
-                                    doc.content[1].table.body[i][7].alignment = 'center';
-                                    doc.content[1].table.body[i][8].alignment = 'center';
-                                    doc.content[1].table.body[i][10].alignment = 'center';
-                                    doc.content[1].table.body[i][11].alignment = 'center';
+                                    let freqHopper = doc.content[1].table.body[i][9].text;
+                                    if (freqHopper.includes("✅")) doc.content[1].table.body[i][9].text = "Yes";
+                                    else if (freqHopper.includes("❌")) doc.content[1].table.body[i][9].text = "No";
+
+                                    // Center align specific columns
+                                    doc.content[1].table.body[i][7].alignment = 'center'; // Candidate Experience
+                                    doc.content[1].table.body[i][8].alignment = 'center'; // Experience Match
+                                    doc.content[1].table.body[i][9].alignment = 'center'; // Frequent Hopper
+                                    doc.content[1].table.body[i][10].alignment = 'center'; // Score
+                                    doc.content[1].table.body[i][12].alignment = 'center'; // Parsed Pages
+                                    doc.content[1].table.body[i][13].alignment = 'center'; // Parsed Date
                                 }
 
-                                doc.pageMargins = [20, 20, 20, 30];
+                                doc.pageMargins = [15, 15, 15, 25]; // Tighter margins for more columns
 
                                 doc['footer'] = function(currentPage, pageCount) {
-                                    return { text: currentPage.toString() + ' / ' + pageCount, alignment: 'right', margin: [0, 0, 20, 0] };
+                                    return { 
+                                        text: currentPage.toString() + ' / ' + pageCount, 
+                                        alignment: 'right', 
+                                        margin: [0, 0, 15, 0] 
+                                    };
                                 };
                             }
                         },
@@ -829,14 +858,13 @@ async function loadHistory_report() {
                     extend: 'print',
                     text: '<i class="fa fa-print text-primary"></i>',
                     title: 'Analysis_Report_' + (() => {
-                                const today = new Date();
-                                const day = String(today.getDate()).padStart(2, '0');
-                                const month = String(today.getMonth() + 1).padStart(2, '0');
-                                const year = today.getFullYear();
-                                return `${day}-${month}-${year}`;
-                            })(),
+                        const today = new Date();
+                        const day = String(today.getDate()).padStart(2, '0');
+                        const month = String(today.getMonth() + 1).padStart(2, '0');
+                        const year = today.getFullYear();
+                        return `${day}-${month}-${year}`;
+                    })(),
                     exportOptions: {
-                        // columns: ':not(:last-child)',
                         format: {
                             body: function (data, row, column, node) {
                                 return data === '✅' ? 'Yes' : (data === '❌' ? 'No' : data);
@@ -846,6 +874,7 @@ async function loadHistory_report() {
                 }
             ]
         });
+
     } catch (e) {
         console.error('Error loading history:', e);
         historyTable.innerHTML = '<div class="alert alert-danger">Failed to load history</div>';
@@ -1845,6 +1874,7 @@ async function uploadUserProfile(id) {
             const positions = (data.experience_analysis && data.experience_analysis.positions) || [];
             const totalExp = (data.experience_analysis && data.experience_analysis.total_experience) || 'N/A';
             const expMatch = (data.experience_analysis && data.experience_analysis.experience_match) || false;
+            const frequentHopper = (data.experience_analysis && data.experience_analysis.frequent_hopper) || false;
             const jdExp = (data.experience_analysis && data.experience_analysis.required_experience) || "N/A";
             const summary = data.summary || '';
 
@@ -1912,6 +1942,13 @@ async function uploadUserProfile(id) {
                         <div class="metric-card ${expMatch ? 'match' : 'no-match'}">
                             <div class="metric-title">Experience Match</div>
                             <div class="metric-value">${expMatch ? '✅ Match' : '❌ No Match'}</div>
+                        </div>
+                        <div class="metric-card ${frequentHopper ? 'frequent-hopper' : 'stable'}">
+
+                            <div class="metric-title">Frequent Hopper(hopping within 1 month - 11 months)</div>
+
+                            <div class="metric-value">${frequentHopper ? '⚠️ Yes' : '✅ No'}</div>
+
                         </div>
                     </div>
 
@@ -2024,11 +2061,13 @@ async function uploadUserProfile(id) {
                         <td>${idx + 1}</td>
                         <td>${h.candidate_name || 'N/A'}</td>
                         <td>${h.candidate_email || 'N/A'}</td>
+                        <td>${h.candidate_mobile || 'N/A'}</td>
                         <td>${h.client_name || 'N/A'}</td>
                         <td>${h.jd_title || 'N/A'}</td>
                         <td>${h.required_experience || 'N/A'} Years</td>
                         <td>${h.total_experience || 'N/A'}</td>
                         <td style="text-align: center;">${h.experience_match ? '✅' : '❌'}</td>
+                        <td style="text-align: center;">${h.frequent_hopper ? '✅' : '❌'}</td>
                         <td>${h.match_score ?? 'N/A'}</td>
                         <td>${h.filename || 'N/A'}</td>
                         <td>${h.page_count || 'N/A'}</td>
@@ -2050,11 +2089,13 @@ async function uploadUserProfile(id) {
                                     <th>S.No</th>
                                     <th>Candidate Name</th>
                                     <th>Email</th>
+                                    <th>Mobile</th>
                                     <th>Client</th>
                                     <th>Job Description</th>
                                     <th>Required <br> Experience</th>
                                     <th>Candidate <br> Experience</th>
                                     <th>Experience <br> Match</th>
+                                    <th>Frequent <br> Hopper</th>
                                     <th>Score</th>
                                     <th>File Name</th>
                                     <th>Parsed <br> Pages</th>
@@ -2074,9 +2115,13 @@ async function uploadUserProfile(id) {
                     language: { lengthMenu: "_MENU_" },
                     order: [],
                     columnDefs: [
-                        { orderable: true, targets: [0, 1, 8, 10, 11] },
+                        { orderable: true, targets: [0, 1, 10, 12, 13] }, // Updated indices
                         { orderable: false, targets: '_all' },
-                        { width: "120px", targets: "_all" }
+                        { width: "auto", targets: "_all" },
+                        { 
+                            targets: [8, 9], // Experience Match & Frequent Hopper columns
+                            className: 'dt-center' // Center align these columns
+                        }
                     ],
                     dom: `
                         <"d-flex justify-content-between align-items-center mb-3"
@@ -2101,7 +2146,17 @@ async function uploadUserProfile(id) {
                                 return `${day}-${month}-${year}`;
                             })(),
                             sheetName: 'analysis_history',
-                            exportOptions: { columns: ':not(:last-child)' }
+                            exportOptions: { 
+                                columns: ':not(:last-child)', // Exclude action column
+                                format: {
+                                    body: function (data, row, column, node) {
+                                        // Convert icons to text for Excel
+                                        if (data.includes('✅')) return 'Yes';
+                                        if (data.includes('❌')) return 'No';
+                                        return data;
+                                    }
+                                }
+                            }
                         },
                         {
                             extend: 'pdfHtml5',
@@ -2115,7 +2170,9 @@ async function uploadUserProfile(id) {
                             })(),
                             orientation: 'landscape',
                             pageSize: 'A3',
-                            exportOptions: { columns: [0,1,2,3,4,5,6,7,8,9,10,11] },
+                            exportOptions: { 
+                                columns: [0,1,2,3,4,5,6,7,8,9,10,11,12,13] // All columns except action
+                            },
                             customize: function (doc) {
                                 doc.styles.tableHeader = {
                                     fillColor: '#f2f2f2',
@@ -2123,9 +2180,22 @@ async function uploadUserProfile(id) {
                                     alignment: 'left',
                                     bold: true
                                 };
-                                doc.defaultStyle.fontSize = 8;
+                                doc.defaultStyle.fontSize = 7; // Slightly smaller font to fit more columns
                                 doc.content[1].table.widths = [
-                                    '3%', '15%', '15%', '10%', '15%', '6%', '6%', '5%', '4%', '10%', '3%', '7%'
+                                    '3%',  // S.No
+                                    '12%', // Candidate Name
+                                    '12%', // Email
+                                    '10%', // Mobile
+                                    '10%', // Client
+                                    '12%', // Job Description
+                                    '6%',  // Required Experience
+                                    '6%',  // Candidate Experience
+                                    '5%',  // Experience Match
+                                    '5%',  // Frequent Hopper
+                                    '4%',  // Score
+                                    '8%',  // File Name
+                                    '3%',  // Parsed Pages
+                                    '7%'   // Parsed Date
                                 ];
 
                                 // Add custom layout
@@ -2151,21 +2221,32 @@ async function uploadUserProfile(id) {
 
                                 var rowCount = doc.content[1].table.body.length;
                                 for (var i = 1; i < rowCount; i++) {
-                                    let expMatch = doc.content[1].table.body[i][7].text;
-                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][7].text = "Yes";
-                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][7].text = "No";
+                                    // Convert icons to text
+                                    let expMatch = doc.content[1].table.body[i][8].text;
+                                    if (expMatch.includes("✅")) doc.content[1].table.body[i][8].text = "Yes";
+                                    else if (expMatch.includes("❌")) doc.content[1].table.body[i][8].text = "No";
 
-                                    doc.content[1].table.body[i][6].alignment = 'center';
-                                    doc.content[1].table.body[i][7].alignment = 'center';
-                                    doc.content[1].table.body[i][8].alignment = 'center';
-                                    doc.content[1].table.body[i][10].alignment = 'center';
-                                    doc.content[1].table.body[i][11].alignment = 'center';
+                                    let freqHopper = doc.content[1].table.body[i][9].text;
+                                    if (freqHopper.includes("✅")) doc.content[1].table.body[i][9].text = "Yes";
+                                    else if (freqHopper.includes("❌")) doc.content[1].table.body[i][9].text = "No";
+
+                                    // Center align specific columns
+                                    doc.content[1].table.body[i][7].alignment = 'center'; // Candidate Experience
+                                    doc.content[1].table.body[i][8].alignment = 'center'; // Experience Match
+                                    doc.content[1].table.body[i][9].alignment = 'center'; // Frequent Hopper
+                                    doc.content[1].table.body[i][10].alignment = 'center'; // Score
+                                    doc.content[1].table.body[i][12].alignment = 'center'; // Parsed Pages
+                                    doc.content[1].table.body[i][13].alignment = 'center'; // Parsed Date
                                 }
 
-                                doc.pageMargins = [20, 20, 20, 30];
+                                doc.pageMargins = [15, 15, 15, 25]; // Tighter margins for more columns
 
                                 doc['footer'] = function(currentPage, pageCount) {
-                                    return { text: currentPage.toString() + ' / ' + pageCount, alignment: 'right', margin: [0, 0, 20, 0] };
+                                    return { 
+                                        text: currentPage.toString() + ' / ' + pageCount, 
+                                        alignment: 'right', 
+                                        margin: [0, 0, 15, 0] 
+                                    };
                                 };
                             }
                         },
@@ -2179,7 +2260,13 @@ async function uploadUserProfile(id) {
                                 const year = today.getFullYear();
                                 return `${day}-${month}-${year}`;
                             })(),
-                            exportOptions: { columns: ':not(:last-child)' }
+                            exportOptions: { 
+                                columns: ':not(:last-child)' // Exclude action column
+                            },
+                            customize: function (win) {
+                                $(win.document.body).find('table').addClass('print-table');
+                                $(win.document.body).css('font-size', '10px');
+                            }
                         }
                     ]
                 });
