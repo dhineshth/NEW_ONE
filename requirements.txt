@@ -1,3 +1,4 @@
+pip<24.1
 fastapi
 uvicorn
 pymongo
@@ -20,11 +21,10 @@ docx2txt
 pdfminer
 pdfminer.six==20240706
 python-dateutil
-# textract
 aiofiles
 motor
 slowapi
-pywin32
 google-generativeai
 python-docx
 python-jose
+#done
