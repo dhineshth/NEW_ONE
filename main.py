@@ -101,6 +101,7 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 SMTP_FROM = os.getenv("SMTP_FROM") or SMTP_USER
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000")
+# APP_BASE_URL = os.getenv("APP_BASE_URL", "http://192.168.1.140:8000")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 app = FastAPI()
@@ -3462,12 +3463,12 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
         headers={"Retry-After": str(retry_after)},
     )
 
-
 # --------------------
 # Main
 # --------------------
 if __name__ == "__main__":
     import uvicorn
-    #uvicorn.run(app, host="192.168.1.140", port=8000)
+    # uvicorn.run(app, host="192.168.1.140", port=8000)
     uvicorn.run(app, host="127.0.0.1", port=8000)
+
 
