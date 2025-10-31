@@ -20,7 +20,7 @@ docx2txt
 pdfminer
 pdfminer.six==20240706
 python-dateutil
-textract
+# textract
 aiofiles
 motor
 slowapi
