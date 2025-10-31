@@ -24,7 +24,6 @@ python-dateutil
 aiofiles
 motor
 slowapi
-pywin32
 google-generativeai
 python-docx
 python-jose
