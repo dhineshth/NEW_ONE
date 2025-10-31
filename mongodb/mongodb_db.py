@@ -51,26 +51,20 @@ import tempfile
 import subprocess
 import platform
 from typing import Optional
-
 import PyPDF2
-
-try:
-    import win32com.client  # For Windows MS Word
-except ImportError:
-    win32com = None
 
 try:
     from docx import Document
 except ImportError:
     Document = None
 
+
 def count_pages(file_content: bytes, filename: str) -> int:
     """
     Count pages in PDF, DOC, or DOCX files.
     Uses:
         - PDF: direct count
-        - DOC/DOCX: exact count via LibreOffice (cross-platform) or MS Word COM (Windows)
-        - Fallback: paragraph-based estimate
+        - DOC/DOCX: via LibreOffice (Linux/macOS) or fallback estimate
     """
     file_extension = os.path.splitext(filename)[1].lower()
 
@@ -82,31 +76,15 @@ def count_pages(file_content: bytes, filename: str) -> int:
 
         # ---------- DOC/DOCX ----------
         elif file_extension in [".doc", ".docx"]:
-            # --- Windows with MS Word ---
-            if platform.system() == "Windows" and win32com:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp_file:
-                    tmp_file.write(file_content)
-                    tmp_file_path = tmp_file.name
+            with tempfile.TemporaryDirectory() as tmpdir:
+                input_path = os.path.join(tmpdir, filename)
+                output_pdf = os.path.join(tmpdir, "converted.pdf")
 
-                word = win32com.client.Dispatch("Word.Application")
-                word.Visible = False
-                doc = word.Documents.Open(tmp_file_path)
-                pages = doc.ComputeStatistics(2)  # 2 = wdStatisticPages
-                doc.Close(False)
-                word.Quit()
-                os.unlink(tmp_file_path)
-                return pages
+                with open(input_path, "wb") as f:
+                    f.write(file_content)
 
-            # --- LibreOffice cross-platform ---
-            else:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    input_path = os.path.join(tmpdir, filename)
-                    output_pdf = os.path.join(tmpdir, "converted.pdf")
-
-                    with open(input_path, "wb") as f:
-                        f.write(file_content)
-
-                    # Convert DOC/DOCX → PDF using LibreOffice
+                # Convert DOC/DOCX → PDF using LibreOffice
+                try:
                     subprocess.run(
                         ["soffice", "--headless", "--convert-to", "pdf", "--outdir", tmpdir, input_path],
                         check=True,
@@ -118,12 +96,14 @@ def count_pages(file_content: bytes, filename: str) -> int:
                         with open(output_pdf, "rb") as pdf_file:
                             pdf_reader = PyPDF2.PdfReader(pdf_file)
                             return len(pdf_reader.pages)
-                    else:
-                        # Fallback if conversion failed
-                        if Document:
-                            doc = Document(io.BytesIO(file_content))
-                            return max(1, len(doc.paragraphs) // 10)
-                        return 1
+                except Exception as err:
+                    print(f"LibreOffice conversion failed: {err}")
+
+                # --- Fallback (no LibreOffice or error) ---
+                if Document:
+                    doc = Document(io.BytesIO(file_content))
+                    return max(1, len(doc.paragraphs) // 10)
+                return 1
 
         # ---------- Other file types ----------
         else:
@@ -139,6 +119,7 @@ def count_pages(file_content: bytes, filename: str) -> int:
             except:
                 return 1
         return 1
+
 
 # --------------------
 # Client Management Functions (Async)
