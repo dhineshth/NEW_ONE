@@ -1,6 +1,6 @@
 from pymongo import MongoClient
 
-client = MongoClient("mongodb://localhost:27017")
+client = MongoClient("mongodb+srv://DhineshMongoDBTest:Dhinesh@2507@cluster0.grsibcj.mongodb.net/")
 db = client["tlrecruitdb"]
 
 # Example indexes
