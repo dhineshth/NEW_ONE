@@ -4,7 +4,7 @@ from pymongo import MongoClient
 
 # Connect with proper DB
 #client = MongoClient("mongodb://tladmin:TlAdminDh@103.146.234.83:27017/?authSource=admin")
-client = MongoClient("mongodb+srv://DhineshMongoDBTest:Dhinesh@2507@cluster0.grsibcj.mongodb.net/")
+client = MongoClient("mongodb+srv://DhineshMongoDBTest:Dhinesh2507@cluster0.grsibcj.mongodb.net/")
 # Select database
 db = client["tlrecruitdb"]
 
