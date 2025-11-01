@@ -1,4 +1,3 @@
-pip<24.1
 fastapi
 uvicorn
 pymongo
