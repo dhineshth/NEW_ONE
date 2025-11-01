@@ -13,7 +13,7 @@ async function login() {
     messageDiv.style.display = "none";
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/login", {
+        const response = await fetch("http://0.0.0.0:8000/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, password })
@@ -122,7 +122,7 @@ async function requestReset(){
   }
   
   try {
-    const res = await fetch('http://127.0.0.1:8000/password-reset/request', {
+    const res = await fetch('http://0.0.0.0:8000/password-reset/request', {
       method: 'POST', 
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ email: email, new_password: pw })
@@ -153,7 +153,7 @@ async function confirmReset(){
   msg.innerText = '';
   if(!token){ msg.innerText = 'Token is required.'; return; }
   try{
-    const res = await fetch(`http://127.0.0.1:8000/password-reset/confirm/${token}`, {
+    const res = await fetch(`http://0.0.0.0:8000/password-reset/confirm/${token}`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ token: token })
     });

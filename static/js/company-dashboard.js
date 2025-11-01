@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'http://0.0.0.0:8000';
         const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB in bytes
         const ALLOWED_FILE_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
         // --- Validation Helpers ---
