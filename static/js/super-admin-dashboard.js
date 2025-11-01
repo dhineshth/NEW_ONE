@@ -6,7 +6,7 @@ let userData = null;
 let companies = [];
 let currentStatusFilter = 'all';
 let currentRestoreType = 'companies';
-const API_BASE_URL = 'http://0.0.0.0:8000';
+const API_BASE_URL = 'https://new-one-vnnv.onrender.com';
 
 // ================================
 // AUTHENTICATION & SESSION MANAGEMENT
